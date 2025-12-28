@@ -90,7 +90,7 @@ def run_batch(games, max_parallel=3, episodes=3000):
 
 def main():
     parser = argparse.ArgumentParser(description="Atari Batch Trainer")
-    parser.add_argument("--parallel", "-p", type=int, default=3, help="Max parallel games")
+    parser.add_argument("--parallel", "-p", type=int, default=2, help="Max parallel games")
     parser.add_argument("--episodes", "-e", type=int, default=10000, help="Episodes per game")
     parser.add_argument("--games", "-g", nargs="+", help="Specific games to train (defaults to all 8)")
     
