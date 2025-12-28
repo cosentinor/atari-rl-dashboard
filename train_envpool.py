@@ -242,77 +242,76 @@ def train_envpool(
             # Normalize observations
             next_states = next_obs.astype(np.float32) / 255.0
             
-            # Store transitions and track episodes
-            for i in range(num_envs):
-                # Store transition
-                agent.push_transition(
-                    states[i], 
-                    actions[i], 
-                    rewards[i], 
-                    next_states[i], 
-                    dones[i]
-                )
+            # Update episode tracking (vectorized)
+            episode_rewards += rewards
+            episode_steps += 1
+            total_steps += num_envs
+            
+            # Find completed episodes
+            done_indices = np.where(dones)[0]
+            
+            for i in done_indices:
+                completed_episodes += 1
+                agent.episode_count = start_episode + completed_episodes
+                agent.update_epsilon()
                 
-                episode_rewards[i] += rewards[i]
-                episode_steps[i] += 1
-                total_steps += 1
+                ep_reward = episode_rewards[i]
+                recent_rewards.append(ep_reward)
+                if len(recent_rewards) > 100:
+                    recent_rewards.pop(0)
                 
-                # Episode complete
-                if dones[i]:
-                    completed_episodes += 1
-                    agent.episode_count = start_episode + completed_episodes
-                    agent.update_epsilon()
+                is_best = ep_reward > best_reward
+                if is_best:
+                    best_reward = ep_reward
+                
+                # Log periodically
+                current_time = time.time()
+                if completed_episodes % 50 == 0 or is_best or (current_time - last_log_time > 10):
+                    elapsed = current_time - training_start
+                    eps_per_hour = completed_episodes / (elapsed / 3600) if elapsed > 0 else 0
+                    fps = total_frames / elapsed if elapsed > 0 else 0
+                    avg_reward = np.mean(recent_rewards) if recent_rewards else 0
                     
-                    ep_reward = episode_rewards[i]
-                    recent_rewards.append(ep_reward)
-                    if len(recent_rewards) > 100:
-                        recent_rewards.pop(0)
+                    log_msg = (
+                        f"Ep {start_episode + completed_episodes:5d} | "
+                        f"Reward: {ep_reward:7.1f} | "
+                        f"Avg100: {avg_reward:7.1f} | "
+                        f"Best: {best_reward:7.1f} | "
+                        f"ε: {agent.current_epsilon:.3f} | "
+                        f"Eps/hr: {eps_per_hour:.0f} | "
+                        f"FPS: {fps/1000:.1f}K"
+                    )
                     
-                    is_best = ep_reward > best_reward
                     if is_best:
-                        best_reward = ep_reward
+                        log_msg += " ⭐"
                     
-                    # Log periodically
-                    current_time = time.time()
-                    if completed_episodes % 50 == 0 or is_best or (current_time - last_log_time > 10):
-                        elapsed = current_time - training_start
-                        eps_per_hour = completed_episodes / (elapsed / 3600) if elapsed > 0 else 0
-                        fps = total_frames / elapsed if elapsed > 0 else 0
-                        avg_reward = np.mean(recent_rewards) if recent_rewards else 0
-                        
-                        log_msg = (
-                            f"Ep {start_episode + completed_episodes:5d} | "
-                            f"Reward: {ep_reward:7.1f} | "
-                            f"Avg100: {avg_reward:7.1f} | "
-                            f"Best: {best_reward:7.1f} | "
-                            f"ε: {agent.current_epsilon:.3f} | "
-                            f"Eps/hr: {eps_per_hour:.0f} | "
-                            f"FPS: {fps/1000:.1f}K"
-                        )
-                        
-                        if is_best:
-                            log_msg += " ⭐"
-                        
-                        logger.info(log_msg)
-                        last_log_time = current_time
-                    
-                    # Save checkpoints
-                    if completed_episodes % 100 == 0 or is_best:
-                        model_manager.save_checkpoint(
-                            agent, env_id, start_episode + completed_episodes,
-                            ep_reward, is_best=is_best
-                        )
-                        if completed_episodes % 100 == 0:
-                            logger.info(f"  [Checkpoint] Episode {start_episode + completed_episodes}")
-                    
-                    # Reset episode tracking for this env
-                    episode_rewards[i] = 0
-                    episode_steps[i] = 0
+                    logger.info(log_msg)
+                    last_log_time = current_time
+                
+                # Save checkpoints
+                if completed_episodes % 100 == 0 or is_best:
+                    model_manager.save_checkpoint(
+                        agent, env_id, start_episode + completed_episodes,
+                        ep_reward, is_best=is_best
+                    )
+                    if completed_episodes % 100 == 0:
+                        logger.info(f"  [Checkpoint] Episode {start_episode + completed_episodes}")
+                
+                # Reset episode tracking for this env
+                episode_rewards[i] = 0
+                episode_steps[i] = 0
+            
+            # Store transitions in batches (only sample a subset to avoid memory issues)
+            sample_indices = np.random.choice(num_envs, min(32, num_envs), replace=False)
+            for i in sample_indices:
+                agent.push_transition(
+                    states[i], actions[i], rewards[i], next_states[i], dones[i]
+                )
             
             states = next_states
             
-            # Learn from replay buffer (batched)
-            for _ in range(4):  # Multiple gradient steps per env step
+            # Learn less frequently but with larger batches
+            if total_steps % (num_envs * 4) == 0:
                 loss = agent.learn()
             
             # Autosave
