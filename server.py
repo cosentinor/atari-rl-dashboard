@@ -16,6 +16,7 @@ from frame_streamer import FrameStreamer
 from rainbow_agent import RainbowAgent, FrameStack, get_device
 from model_manager import ModelManager
 from db_manager import TrainingDatabase
+from config import AUTOSAVE_INTERVAL_SECONDS, AUTOSAVE_INTERVAL_EPISODES
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -418,6 +419,9 @@ def run_training_loop():
     frame_counter = 0
     step_sample_rate = 100  # Log step metrics every N steps
     
+    # Time-based autosave tracking
+    last_autosave_time = time.time()
+    
     logger.info("Training loop started")
     
     try:
@@ -493,6 +497,26 @@ def run_training_loop():
                     if frame_counter % 10 == 0:
                         time.sleep(0.001)  # Minimal delay
                 # turbo = no delay
+                
+                # Time-based autosave (every 90 seconds)
+                current_time = time.time()
+                if current_time - last_autosave_time >= AUTOSAVE_INTERVAL_SECONDS:
+                    if rainbow_agent and current_game:
+                        try:
+                            model_manager.save_checkpoint(
+                                rainbow_agent,
+                                current_game,
+                                episode,
+                                episode_reward
+                            )
+                            last_autosave_time = current_time
+                            logger.info(f"Time-based autosave at episode {episode}, step {step}")
+                            socketio.emit('log', {
+                                'message': f'Autosaved at episode {episode}',
+                                'type': 'info'
+                            })
+                        except Exception as e:
+                            logger.error(f"Autosave failed: {e}")
                 
                 state = next_state
             

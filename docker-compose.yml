@@ -1,0 +1,44 @@
+# Docker Compose for Atari RL Training
+# Provides easy commands for both training and web UI
+
+version: '3.8'
+
+services:
+  # Headless training service (for Thunder/cloud)
+  train:
+    build: .
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+    volumes:
+      - ./saved_models:/app/saved_models
+      - ./data:/app/data
+    command: python train.py --game Pong --episodes 3000
+
+  # Web UI service (for local use)
+  webui:
+    build: .
+    ports:
+      - "5001:5001"
+    volumes:
+      - ./saved_models:/app/saved_models
+      - ./data:/app/data
+      - ./frontend:/app/frontend
+    environment:
+      - FLASK_ENV=development
+    command: python run_server.py
+
+# Usage:
+# 
+# Train Pong (headless):
+#   docker-compose run --rm train python train.py --game Pong --episodes 3000
+#
+# Train all games:
+#   docker-compose run --rm train python train.py --game all
+#
+# Start web UI:
+#   docker-compose up webui
+#
+# Build images:
+#   docker-compose build
+
