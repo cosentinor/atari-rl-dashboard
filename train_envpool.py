@@ -144,12 +144,17 @@ def train_envpool(
     # Create EnvPool environment
     logger.info(f"Creating {num_envs} EnvPool environments...")
     try:
+        # Use num_threads=0 for envpool to automatically manage threads per environment,
+        # but in parallel settings we want to be more explicit.
+        # We'll use a safer default or the user-specified num_threads.
+        num_threads = min(num_envs, 8) 
+        
         env = envpool.make(
             envpool_id,
             env_type="gymnasium",
             num_envs=num_envs,
             batch_size=num_envs,  # Process all envs together
-            num_threads=min(num_envs, 16),  # Use available CPU threads
+            num_threads=num_threads,
             seed=42,
             episodic_life=True,  # Standard Atari preprocessing
             reward_clip=True,
