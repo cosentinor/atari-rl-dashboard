@@ -245,7 +245,7 @@ def handle_start_training(data):
 @socketio.on('stop_training')
 def handle_stop_training():
     """Stop current training."""
-    global is_training, streamer, current_session_id
+    global is_training, streamer
     
     logger.info("Stopping training")
     is_training = False
@@ -265,8 +265,6 @@ def handle_stop_training():
 @socketio.on('save_model')
 def handle_save_model():
     """Manually save current model."""
-    global rainbow_agent, current_game, current_session_id
-    
     if not rainbow_agent or not current_game:
         emit('error', {'message': 'No active training session'})
         return
@@ -301,8 +299,6 @@ def handle_save_model():
 @socketio.on('load_model')
 def handle_load_model(data):
     """Load a saved model."""
-    global rainbow_agent
-    
     game_id = data.get('game_id')
     checkpoint = data.get('checkpoint')
     
@@ -404,8 +400,7 @@ def handle_get_history(data):
 
 def run_training_loop():
     """Main training loop running in background thread."""
-    global is_training, streamer, rainbow_agent, frame_stack
-    global current_session_id, training_speed, viz_frame_skip
+    global is_training
     
     if not streamer or not rainbow_agent:
         return
