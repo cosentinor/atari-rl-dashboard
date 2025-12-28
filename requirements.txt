@@ -1,0 +1,20 @@
+# Core RL and Atari dependencies
+gymnasium[atari]
+gymnasium[accept-rom-license]
+ale-py
+numpy>=1.26.0
+opencv-python>=4.8.0
+
+# Web server and communication
+flask>=3.0.0
+flask-socketio>=5.3.0
+flask-cors>=4.0.0
+
+# PyTorch for Rainbow DQN
+torch>=2.0.0
+torchvision>=0.15.0
+
+# Note: For CUDA support, install the appropriate PyTorch version:
+# pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+# For Apple Silicon (MPS):
+# pip install torch torchvision (MPS is included by default)
