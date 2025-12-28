@@ -13,7 +13,8 @@ echo "🚀 Starting Atari RL VPS Automation Setup..."
 # 1. Update and install base dependencies
 echo "📦 Installing system dependencies..."
 apt-get update -qq
-apt-get install -y -qq python3-pip python3-venv git wget libgl1-mesa-glx libglib2.0-0 unattended-upgrades apt-listchanges curl mailutils
+# libgl1 is the modern replacement for the deprecated libgl1-mesa-glx
+apt-get install -y -qq python3-pip python3-venv git wget libgl1 libglib2.0-0 unattended-upgrades apt-listchanges curl mailutils
 
 # 2. Configure Unattended-Upgrades (Security)
 echo "🔒 Configuring automatic security updates..."
