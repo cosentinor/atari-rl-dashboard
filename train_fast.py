@@ -40,15 +40,22 @@ from config import (
 try:
     import gymnasium as gym
     from gymnasium.vector import AsyncVectorEnv, SyncVectorEnv
+    # IMPORTANT: Import ale_py to register ALE environments
+    import ale_py
+    gym.register_envs(ale_py)
     HAS_VECTOR_ENV = True
-except ImportError:
+except ImportError as e:
     HAS_VECTOR_ENV = False
-    logger.warning("Vectorized environments not available")
+    logger.warning(f"Vectorized environments not available: {e}")
 
 
 def make_env(env_id):
     """Factory function to create environment."""
     def _init():
+        # Import ale_py in each subprocess to register environments
+        import gymnasium as gym
+        import ale_py
+        gym.register_envs(ale_py)
         env = gym.make(env_id, render_mode=None)
         return env
     return _init
