@@ -135,11 +135,16 @@ def train_envpool(
         gpu_name = torch.cuda.get_device_name(0)
         logger.info(f"GPU: {gpu_name} ({gpu_mem:.1f} GB)")
         
-        # Scale up for powerful GPUs
+        # Only scale up if the user didn't specify larger values
         if gpu_mem >= 40:
-            batch_size = max(batch_size, 1024)
-            num_envs = max(num_envs, 128)
-            logger.info(f"🚀 A100 detected! Scaling: batch_size={batch_size}, num_envs={num_envs}")
+            if batch_size < 1024:
+                batch_size = 1024
+                logger.info(f"🚀 A100 detected! Auto-scaling batch_size to {batch_size}")
+            if num_envs < 128:
+                # But don't auto-scale if we are in batch mode (indicated by smaller num_envs)
+                if num_envs > 64: 
+                    num_envs = 128
+                    logger.info(f"🚀 A100 detected! Auto-scaling num_envs to {num_envs}")
     
     # Create EnvPool environment
     logger.info(f"Creating {num_envs} EnvPool environments...")

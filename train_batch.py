@@ -54,9 +54,9 @@ def run_batch(games, max_parallel=3, episodes=3000):
                 log_file = f"training_{game.lower()}.log"
                 print(f"🏃 Starting: {game} (Logging to {log_file})")
                 
-                # Optimized for A100: num-envs=64, batch-size=1024
-                # We divide 128 envs by max_parallel to keep CPU usage sane (16 cores total)
-                num_envs = 128 // max_parallel
+                # Optimized for A100:
+                # We use 64 envs per game for stability in parallel runs
+                num_envs = 64
                 
                 cmd = [
                     sys.executable, "train_envpool.py",
@@ -74,6 +74,11 @@ def run_batch(games, max_parallel=3, episodes=3000):
                         text=True
                     )
                     processes[game] = proc
+                
+                # Add delay between starting games for stability
+                if queue:
+                    print(f"Waiting 30 seconds before starting next game...")
+                    time.sleep(30)
 
             if queue or processes:
                 time.sleep(10)  # Check every 10 seconds
