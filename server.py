@@ -156,7 +156,23 @@ def handle_connect():
 @socketio.on('disconnect')
 def handle_disconnect():
     """Handle client disconnect."""
+    global is_training, streamer
     logger.info("Client disconnected")
+    
+    # Stop training on disconnect as requested
+    if is_training:
+        logger.info("Stopping training due to client disconnect")
+        is_training = False
+        
+        if current_session_id:
+            db.end_session(current_session_id)
+        
+        if streamer:
+            streamer.stop()
+            streamer = None
+        
+        socketio.emit('training_stopped', {})
+        socketio.emit('status', {'isTraining': False, 'game': None})
 
 
 @socketio.on('start_training')

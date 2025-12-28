@@ -1,0 +1,28 @@
+[Unit]
+Description=Atari RL Training Dashboard
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=riccardo
+Group=riccardo
+WorkingDirectory=/home/riccardo/atari-rl-dashboard
+# Use the virtualenv's python
+ExecStart=/home/riccardo/atari-rl-dashboard/.venv/bin/python run_server.py
+Restart=always
+RestartSec=5
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+# Logging
+StandardOutput=append:/var/log/atari/app.log
+StandardError=append:/var/log/atari/error.log
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
+
