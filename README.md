@@ -95,16 +95,18 @@ python train.py --list-games
 See **[PRODUCTION_SETUP.md](PRODUCTION_SETUP.md)** for complete guide.
 
 **Quick Start:**
-1. Create Thunder Compute Production Mode instance (not Prototyping!)
-2. Run `bash setup_production.sh` on instance
-3. Run `bash launch_production_training.sh`
-4. Monitor: `python monitor_production.py --host tnr-prod --watch`
+1. Create Thunder Compute Production Mode instance (A100 80GB recommended)
+2. Configure SSH locally: `bash add_production_instance.sh`
+3. Copy and run setup script on instance: `bash setup_production.sh`
+4. Launch training: `bash launch_production_training.sh`
+5. Monitor: `python monitor_production.py --host <your-host> --watch`
 
 **Benefits:**
 - ✅ 10-20x faster than standard training
 - ✅ 6 games in parallel
 - ✅ Complete all 10 games in 2-3 days
 - ✅ No GPU restrictions
+- ✅ A100 80GB GPU utilization: 50-80%
 
 ### Cloud Training (Standard - Thunder Compute / AWS / etc.)
 

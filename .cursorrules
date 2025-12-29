@@ -5,9 +5,10 @@ You are an expert RL Engineer and Systems Administrator for the Atari RL Dashboa
 ## Server Infrastructure
 - **GoDaddy (Main Website)**: `72.167.65.7` (Domain: `riccardocosentino.com`)
 - **Hetzner (Dashboard VPS)**: `46.224.26.78` (Subdomain: `atari.riccardocosentino.com`)
-- **Thunder Compute (Training Cluster)**: `185.216.21.239` (Shared IP)
-  - **Node 0 (tnr-0)**: Port `31607`, User `ubuntu`
-  - **Node 1 (tnr-1)**: Port `31897`, User `ubuntu`
+- **Thunder Compute (Training Nodes)**: 
+  - **tnr-1** (Active): Check `~/.ssh/config` for connection details
+  - Additional nodes can be configured using `add_production_instance.sh`
+  - Connection details are stored in `~/.ssh/config` (hostname, port, SSH key path)
 
 ## Server Context
 - **Hosting**: Hetzner VPS (Ubuntu 24.04).
@@ -38,13 +39,32 @@ When asked to perform tasks, use these standard SSH patterns:
 - **Check Health**:
   `ssh riccardo@<IP> "/home/riccardo/atari-rl-dashboard/deployment/health_check.sh"`
 
+## Thunder Compute Management
+- **Active Nodes**: Check `~/.ssh/config` for configured Thunder Compute hosts (e.g., `tnr-1`, `tnr-prod`)
+- **Adding New Instances**: When user sets up a new Thunder Compute instance, use:
+  1. `bash add_production_instance.sh` (locally) to configure SSH
+  2. `scp setup_production.sh <host>:~/` to copy setup script
+  3. `ssh <host> "bash setup_production.sh"` to configure instance
+  4. `python monitor_production.py --host <host> --watch` to monitor training
+- **Connection Check**: Always verify SSH config exists before assuming specific node details
+- **Instance Instability**: Thunder Compute instances may restart or be terminated unexpectedly
+
 ## Automated Agent Behavior
 - **Proactive Monitoring**: If a user reports the dashboard is slow or down, immediately check the remote logs and service status.
 - **Dependency Management**: If you update `requirements.txt` locally, suggest or perform a remote deployment to keep the VPS in sync.
-- **Model Transfers**: If training completes headlessly, use `scp` to bring models from `riccardo@<IP>:~/atari-rl-dashboard/saved_models/` to the local workspace.
+- **Model Transfers**: If training completes headlessly, use `scp` to bring models from configured Thunder Compute nodes to the local workspace.
+- **Thunder Compute**: When asked about training nodes, check `~/.ssh/config` for active hosts rather than assuming hardcoded IPs.
 
 ## Reference Paths
+
+### Hetzner VPS (Dashboard)
 - **Logs**: `/var/log/atari/`
 - **Service Config**: `/etc/systemd/system/atari.service`
 - **Database**: `/home/riccardo/atari-rl-dashboard/data/rl_training.db`
+
+### Thunder Compute (Training Nodes)
+- **Project Dir**: `~/atari-rl-dashboard`
+- **Logs**: `~/atari-rl-dashboard/training_*.log`
+- **Models**: `~/atari-rl-dashboard/saved_models/`
+- **SSH Config**: `~/.ssh/config` (contains connection details)
 

@@ -4,7 +4,7 @@ Production Training Monitor for Atari RL.
 Real-time monitoring of parallel training processes.
 
 Can be run locally or on the server:
-  Local:  python monitor_production.py --host tnr-prod
+  Local:  python monitor_production.py --host <your-host>
   Server: python monitor_production.py
 """
 
@@ -258,7 +258,7 @@ Examples:
   python monitor_production.py
   
   # Monitor remotely from local machine:
-  python monitor_production.py --host tnr-prod
+  python monitor_production.py --host <your-host>
   
   # Watch mode with detailed info:
   python monitor_production.py --watch --interval 60

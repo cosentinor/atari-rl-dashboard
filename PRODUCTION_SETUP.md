@@ -47,20 +47,22 @@ Run on your **local machine**:
 bash add_production_instance.sh
 ```
 
-Follow prompts to add instance as `tnr-prod` (or your preferred alias).
+Follow prompts to add your instance (use a memorable alias like `tnr-prod`, `tnr-1`, etc.).
+
+**Note:** You can have multiple Thunder Compute instances configured. The scripts work with any alias you choose.
 
 ### Step 3: Setup Instance (Remote)
 
-Copy setup script to instance:
+Copy setup script to instance (replace `<your-host>` with your chosen alias):
 
 ```bash
-scp setup_production.sh tnr-prod:~/
+scp setup_production.sh <your-host>:~/
 ```
 
 SSH into instance and run setup:
 
 ```bash
-ssh tnr-prod
+ssh <your-host>
 bash setup_production.sh
 ```
 
@@ -93,8 +95,10 @@ This will:
 **From your local machine:**
 
 ```bash
-python monitor_production.py --host tnr-prod --watch
+python monitor_production.py --host <your-host> --watch
 ```
+
+Replace `<your-host>` with your SSH config alias (e.g., `tnr-prod`, `tnr-1`, etc.)
 
 **From the instance:**
 
@@ -180,7 +184,7 @@ tmux kill-session -t atari-training
 
 **Local machine:**
 ```bash
-python monitor_production.py --host tnr-prod --watch --interval 60
+python monitor_production.py --host <your-host> --watch --interval 60
 ```
 
 **Instance:**
@@ -284,17 +288,17 @@ Location: `~/atari-rl-dashboard/saved_models/`
 
 **Single game:**
 ```bash
-scp -r tnr-prod:~/atari-rl-dashboard/saved_models/MsPacman ./
+scp -r <your-host>:~/atari-rl-dashboard/saved_models/MsPacman ./
 ```
 
 **All models:**
 ```bash
-scp -r tnr-prod:~/atari-rl-dashboard/saved_models ./saved_models_production
+scp -r <your-host>:~/atari-rl-dashboard/saved_models ./saved_models_production
 ```
 
 **Best models only:**
 ```bash
-scp tnr-prod:~/atari-rl-dashboard/saved_models/*/best_model.pt ./
+scp <your-host>:~/atari-rl-dashboard/saved_models/*/best_model.pt ./
 ```
 
 ### Backup Strategy
@@ -307,7 +311,7 @@ cd ~/atari-rl-dashboard
 tar -czf models_backup_$(date +%Y%m%d_%H%M%S).tar.gz saved_models/
 
 # Download to local
-scp tnr-prod:~/atari-rl-dashboard/models_backup_*.tar.gz ./backups/
+scp <your-host>:~/atari-rl-dashboard/models_backup_*.tar.gz ./backups/
 ```
 
 ## 📈 Expected Timeline
@@ -344,7 +348,7 @@ scp tnr-prod:~/atari-rl-dashboard/models_backup_*.tar.gz ./backups/
 
 | Aspect | Current (Prototyping) | New (Production) |
 |--------|----------------------|------------------|
-| Instance | tnr-1 (Prototyping) | tnr-prod (Production) |
+| Instance Type | Prototyping Mode | Production Mode |
 | Script | train.py | train_envpool.py |
 | Games Active | 3 (Freeway, Enduro, BeamRider) | 6 simultaneous |
 | Speed | 300-700 eps/hr | 6,000-24,000 eps/hr |
