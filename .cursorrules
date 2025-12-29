@@ -41,11 +41,13 @@ When asked to perform tasks, use these standard SSH patterns:
 
 ## Thunder Compute Management
 - **Active Nodes**: Check `~/.ssh/config` for configured Thunder Compute hosts (e.g., `tnr-1`, `tnr-prod`)
-- **Adding New Instances**: When user sets up a new Thunder Compute instance, use:
+- **Quick Reference**: If user asks about setting up new Thunder Compute, direct them to `THUNDER_COMPUTE_SETUP.md`
+- **Adding New Instances**: When user sets up a new Thunder Compute instance:
   1. `bash add_production_instance.sh` (locally) to configure SSH
   2. `scp setup_production.sh <host>:~/` to copy setup script
   3. `ssh <host> "bash setup_production.sh"` to configure instance
   4. `python monitor_production.py --host <host> --watch` to monitor training
+- **Helper Script**: User can run `bash setup_new_instance.sh` to see step-by-step instructions
 - **Connection Check**: Always verify SSH config exists before assuming specific node details
 - **Instance Instability**: Thunder Compute instances may restart or be terminated unexpectedly
 

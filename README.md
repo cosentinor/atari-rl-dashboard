@@ -54,7 +54,10 @@ atari/
     └── styles.css
 ```
 
-## Quick Start
+## 🚀 Quick Start Guides
+
+**Setting up new Thunder Compute instance?** → [THUNDER_COMPUTE_SETUP.md](THUNDER_COMPUTE_SETUP.md) ⚡  
+Or run: `bash setup_new_instance.sh` for step-by-step instructions.
 
 ### Local Setup
 
@@ -92,7 +95,8 @@ python train.py --list-games
 
 **For maximum speed (6,000-24,000 eps/hr):**
 
-See **[PRODUCTION_SETUP.md](PRODUCTION_SETUP.md)** for complete guide.
+📌 **Quick Reference:** [THUNDER_COMPUTE_SETUP.md](THUNDER_COMPUTE_SETUP.md) - **Bookmark this!**  
+📖 **Full Guide:** [PRODUCTION_SETUP.md](PRODUCTION_SETUP.md)
 
 **Quick Start:**
 1. Create Thunder Compute Production Mode instance (A100 80GB recommended)

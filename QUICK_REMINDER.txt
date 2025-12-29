@@ -1,0 +1,23 @@
+═══════════════════════════════════════════════════════════
+  ⚡ THUNDER COMPUTE SETUP - KEEP THIS HANDY!
+═══════════════════════════════════════════════════════════
+
+When you need to set up a new Thunder Compute instance:
+
+1. Run this command:
+   
+   bash setup_new_instance.sh
+
+2. Follow the step-by-step instructions
+
+3. Or read: THUNDER_COMPUTE_SETUP.md
+
+═══════════════════════════════════════════════════════════
+
+That's it! The script walks you through everything.
+
+Total time: ~10 minutes
+Total cost: ~$5-9 to train all 10 games
+
+═══════════════════════════════════════════════════════════
+
