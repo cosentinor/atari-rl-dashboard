@@ -41,9 +41,19 @@ current_session_id = None
 rainbow_agent = None
 frame_stack = None
 
+# Watch mode state
+watch_mode_active = False
+watch_mode_game = None
+watch_mode_thread = None
+
 # Speed control settings
 training_speed = "normal"  # normal, fast, turbo
 viz_frame_skip = 1  # 1 = every frame, 2 = every 2nd, etc.
+
+# Performance: Connection pooling
+MAX_CONCURRENT_TRAINING = 3  # Max simultaneous training sessions
+active_training_sessions = 0
+training_queue = []
 
 
 # ============== HTTP Routes ==============
@@ -128,6 +138,297 @@ def get_device_info():
     })
 
 
+# ============== Visitor Management ==============
+
+@app.route('/api/visitor/register', methods=['POST'])
+def register_visitor():
+    """Register a new visitor or update existing."""
+    import uuid
+    data = request.get_json()
+    
+    email = data.get('email')
+    opt_in_marketing = data.get('opt_in_marketing', False)
+    
+    # Generate or get visitor UUID
+    visitor_uuid = str(uuid.uuid4())
+    
+    try:
+        visitor_id = db.create_or_update_visitor(
+            visitor_uuid=visitor_uuid,
+            email=email,
+            opt_in_marketing=opt_in_marketing
+        )
+        
+        # Log analytics event
+        db.log_analytics_event(
+            event_type='email_provided' if email else 'email_skipped',
+            visitor_id=visitor_id,
+            event_data={'email': email, 'opt_in': opt_in_marketing}
+        )
+        
+        return jsonify({
+            'success': True,
+            'visitor_uuid': visitor_uuid,
+            'visitor_id': visitor_id
+        })
+    except Exception as e:
+        logger.error(f"Failed to register visitor: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+# ============== Analytics ==============
+
+@app.route('/api/analytics/batch', methods=['POST'])
+def log_analytics_batch():
+    """Log multiple analytics events."""
+    data = request.get_json()
+    events = data.get('events', [])
+    
+    try:
+        for event in events:
+            visitor_uuid = event.get('visitor_uuid')
+            visitor_id = event.get('visitor_id')
+            
+            # Get visitor_id from UUID if not provided
+            if visitor_uuid and not visitor_id:
+                visitor = db.get_visitor_by_uuid(visitor_uuid)
+                if visitor:
+                    visitor_id = visitor['id']
+            
+            db.log_analytics_event(
+                event_type=event.get('event_type'),
+                visitor_id=visitor_id,
+                event_data=event.get('event_data'),
+                session_id=event.get('session_id')
+            )
+        
+        return jsonify({'success': True})
+    except Exception as e:
+        logger.error(f"Failed to log analytics: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/analytics/funnel')
+def get_conversion_funnel():
+    """Get conversion funnel data."""
+    try:
+        funnel = db.get_conversion_funnel()
+        return jsonify({'success': True, 'funnel': funnel})
+    except Exception as e:
+        logger.error(f"Failed to get funnel: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+# ============== Feedback ==============
+
+@app.route('/api/feedback', methods=['POST'])
+def submit_feedback():
+    """Submit user feedback."""
+    data = request.get_json()
+    
+    visitor_id = data.get('visitor_id')
+    category = data.get('category', 'general')
+    rating = data.get('rating')
+    message = data.get('message')
+    email = data.get('email')
+    
+    try:
+        # If email provided but no visitor_id, try to find or create visitor
+        if email and not visitor_id:
+            visitor = db.get_visitor_by_email(email)
+            if visitor:
+                visitor_id = visitor['id']
+        
+        feedback_id = db.submit_feedback(
+            visitor_id=visitor_id,
+            category=category,
+            rating=rating,
+            message=message
+        )
+        
+        # Log analytics event
+        if visitor_id:
+            db.log_analytics_event(
+                event_type='feedback_submitted',
+                visitor_id=visitor_id,
+                event_data={'category': category, 'rating': rating}
+            )
+        
+        return jsonify({'success': True, 'feedback_id': feedback_id})
+    except Exception as e:
+        logger.error(f"Failed to submit feedback: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/feedback/stats')
+def get_feedback_stats():
+    """Get feedback statistics."""
+    try:
+        stats = db.get_feedback_stats()
+        return jsonify({'success': True, 'stats': stats})
+    except Exception as e:
+        logger.error(f"Failed to get feedback stats: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+# ============== Challenges ==============
+
+@app.route('/api/challenges')
+def get_challenges():
+    """Get active challenges for visitor."""
+    visitor_id = request.args.get('visitor_id', type=int)
+    
+    try:
+        if visitor_id:
+            challenges = db.get_visitor_challenges(visitor_id)
+        else:
+            challenges = db.get_active_challenges()
+        
+        return jsonify({'success': True, 'challenges': challenges})
+    except Exception as e:
+        logger.error(f"Failed to get challenges: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/challenges/<int:challenge_id>/progress', methods=['POST'])
+def update_challenge_progress(challenge_id):
+    """Update challenge progress."""
+    data = request.get_json()
+    visitor_id = data.get('visitor_id')
+    progress = data.get('progress', 0)
+    completed = data.get('completed', False)
+    
+    try:
+        db.update_challenge_progress(visitor_id, challenge_id, progress, completed)
+        return jsonify({'success': True})
+    except Exception as e:
+        logger.error(f"Failed to update challenge progress: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+# ============== Public Stats ==============
+
+@app.route('/api/stats/public')
+def get_public_stats():
+    """Get public statistics for hero section."""
+    try:
+        visitor_stats = db.get_visitor_stats()
+        db_stats = db.get_database_stats()
+        
+        # Get models trained today (sessions completed today)
+        from datetime import date
+        today = date.today().isoformat()
+        
+        return jsonify({
+            'success': True,
+            'stats': {
+                'visitors': visitor_stats.get('total_visitors', 0),
+                'sessions': visitor_stats.get('total_sessions', 0),
+                'modelsTrainedToday': visitor_stats.get('visitors_today', 0)
+            }
+        })
+    except Exception as e:
+        logger.error(f"Failed to get public stats: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+# ============== Model Comparison ==============
+
+@app.route('/api/models/compare', methods=['POST'])
+def compare_models():
+    """Compare multiple model checkpoints."""
+    data = request.get_json()
+    game_id = data.get('game_id')
+    checkpoints = data.get('checkpoints', [])
+    
+    try:
+        # Get checkpoint details
+        comparison_data = []
+        for checkpoint_name in checkpoints:
+            checkpoints_list = model_manager.get_available_checkpoints(game_id)
+            checkpoint = next((c for c in checkpoints_list if c['filename'] == checkpoint_name), None)
+            if checkpoint:
+                comparison_data.append(checkpoint)
+        
+        return jsonify({
+            'success': True,
+            'comparison': {
+                'checkpoints': comparison_data,
+                'game_id': game_id
+            }
+        })
+    except Exception as e:
+        logger.error(f"Failed to compare models: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+# ============== Share Session ==============
+
+@app.route('/share/<int:session_id>')
+def share_session(session_id):
+    """Public share page for a training session."""
+    # This would render a special share page
+    # For now, redirect to main page
+    return send_from_directory('frontend', 'index.html')
+
+
+# ============== Watch Mode ==============
+
+@app.route('/api/watch/start', methods=['POST'])
+def start_watch_mode():
+    """Start watch mode with best model for a game."""
+    global watch_mode_active, watch_mode_game, watch_mode_thread
+    
+    data = request.get_json()
+    game_id = data.get('game_id')
+    
+    if not game_id:
+        return jsonify({'success': False, 'message': 'No game specified'}), 400
+    
+    try:
+        # Find best model for this game
+        checkpoints = model_manager.get_available_checkpoints(game_id)
+        if not checkpoints:
+            return jsonify({'success': False, 'message': 'No trained models available'}), 404
+        
+        # Get best checkpoint
+        best_checkpoint = next((c for c in checkpoints if c.get('is_best')), checkpoints[0])
+        
+        watch_mode_active = True
+        watch_mode_game = game_id
+        
+        return jsonify({
+            'success': True,
+            'game_id': game_id,
+            'checkpoint': best_checkpoint['filename']
+        })
+    except Exception as e:
+        logger.error(f"Failed to start watch mode: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/watch/stop', methods=['POST'])
+def stop_watch_mode():
+    """Stop watch mode."""
+    global watch_mode_active
+    watch_mode_active = False
+    return jsonify({'success': True})
+
+
+# ============== Queue Management ==============
+
+@app.route('/api/queue/status')
+def get_queue_status():
+    """Get training queue status."""
+    return jsonify({
+        'success': True,
+        'active_sessions': active_training_sessions,
+        'max_sessions': MAX_CONCURRENT_TRAINING,
+        'queue_length': len(training_queue),
+        'can_start': active_training_sessions < MAX_CONCURRENT_TRAINING
+    })
+
+
 # ============== WebSocket Events ==============
 
 @socketio.on('connect')
@@ -156,13 +457,17 @@ def handle_connect():
 @socketio.on('disconnect')
 def handle_disconnect():
     """Handle client disconnect."""
-    global is_training, streamer
+    global is_training, streamer, active_training_sessions
     logger.info("Client disconnected")
     
     # Stop training on disconnect as requested
     if is_training:
         logger.info("Stopping training due to client disconnect")
         is_training = False
+        
+        # Decrement active sessions
+        if active_training_sessions > 0:
+            active_training_sessions -= 1
         
         if current_session_id:
             db.end_session(current_session_id)
@@ -180,11 +485,22 @@ def handle_start_training(data):
     """Start training for a game."""
     global is_training, current_game, current_session_id
     global streamer, training_thread, rainbow_agent, frame_stack
+    global active_training_sessions, training_queue
     
     logger.info(f"Received start_training event with data: {data}")
     
     if is_training:
         emit('error', {'message': 'Training already in progress'})
+        return
+    
+    # Check queue capacity
+    if active_training_sessions >= MAX_CONCURRENT_TRAINING:
+        queue_position = len(training_queue) + 1
+        training_queue.append(data)
+        emit('queued', {
+            'position': queue_position,
+            'message': f'Server is busy. You are #{queue_position} in queue.'
+        })
         return
     
     game_id = data.get('game')
@@ -238,6 +554,7 @@ def handle_start_training(data):
         
         current_game = game_id
         is_training = True
+        active_training_sessions += 1
         
         # Notify client
         emit('training_started', {
@@ -261,10 +578,14 @@ def handle_start_training(data):
 @socketio.on('stop_training')
 def handle_stop_training():
     """Stop current training."""
-    global is_training, streamer
+    global is_training, streamer, active_training_sessions, training_queue
     
     logger.info("Stopping training")
     is_training = False
+    
+    # Decrement active sessions
+    if active_training_sessions > 0:
+        active_training_sessions -= 1
     
     # End database session
     if current_session_id:
@@ -276,6 +597,12 @@ def handle_stop_training():
     
     socketio.emit('training_stopped', {})
     socketio.emit('status', {'isTraining': False, 'game': None})
+    
+    # Process queue if there are waiting sessions
+    if training_queue and active_training_sessions < MAX_CONCURRENT_TRAINING:
+        next_request = training_queue.pop(0)
+        # Emit to the queued client to start their training
+        socketio.emit('queue_ready', {'data': next_request})
 
 
 @socketio.on('save_model')
@@ -598,7 +925,10 @@ def run_training_loop():
         socketio.emit('error', {'message': str(e)})
     
     finally:
+        global active_training_sessions
         is_training = False
+        if active_training_sessions > 0:
+            active_training_sessions -= 1
         if streamer:
             streamer.stop()
         logger.info("Training loop ended")

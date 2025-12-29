@@ -2,6 +2,8 @@
 Description=Atari RL Training Dashboard
 After=network.target
 Wants=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=3
 
 [Service]
 Type=simple
@@ -12,8 +14,6 @@ WorkingDirectory=/home/riccardo/atari-rl-dashboard
 ExecStart=/home/riccardo/atari-rl-dashboard/.venv/bin/python run_server.py
 Restart=always
 RestartSec=5
-StartLimitIntervalSec=60
-StartLimitBurst=3
 
 # Logging
 StandardOutput=append:/var/log/atari/app.log

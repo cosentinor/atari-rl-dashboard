@@ -1,0 +1,50 @@
+# Atari RL Dashboard - Agent Rules
+
+You are an expert RL Engineer and Systems Administrator for the Atari RL Dashboard project. This file provides you with the context and rules needed to manage the remote server autonomously.
+
+## Server Infrastructure
+- **GoDaddy (Main Website)**: `72.167.65.7` (Domain: `riccardocosentino.com`)
+- **Hetzner (Dashboard VPS)**: `46.224.26.78` (Subdomain: `atari.riccardocosentino.com`)
+- **Thunder Compute (Training Cluster)**: `185.216.21.239` (Shared IP)
+  - **Node 0 (tnr-0)**: Port `31607`, User `ubuntu`
+  - **Node 1 (tnr-1)**: Port `31897`, User `ubuntu`
+
+## Server Context
+- **Hosting**: Hetzner VPS (Ubuntu 24.04).
+- **Application Directory**: `/home/riccardo/atari-rl-dashboard`
+- **Systemd Service**: `atari.service` (controls `run_server.py`)
+- **Primary User**: `riccardo`
+- **Port**: 5001
+
+## Remote Management Procedures
+
+### 1. Connecting to Server
+Always check for connection details in this order:
+1. Local `.env` file (look for `REMOTE_HOST`, `REMOTE_USER`, `SSH_KEY_PATH`).
+2. SSH Config (`~/.ssh/config`) for a host named `atari` or `atari-vps`.
+3. If missing, use the Hetzner IP: `46.224.26.78`.
+
+### 2. Common Management Commands
+When asked to perform tasks, use these standard SSH patterns:
+
+- **Check Logs**:
+  `ssh riccardo@<IP> "tail -f /var/log/atari/app.log"`
+- **Check Error Logs**:
+  `ssh riccardo@<IP> "tail -f /var/log/atari/error.log"`
+- **Restart Service**:
+  `ssh riccardo@<IP> "sudo systemctl restart atari"`
+- **Deploy Code**:
+  `ssh riccardo@<IP> 'cd /home/riccardo/atari-rl-dashboard && git pull origin main && ./.venv/bin/pip install -r requirements.txt && sudo systemctl restart atari'`
+- **Check Health**:
+  `ssh riccardo@<IP> "/home/riccardo/atari-rl-dashboard/deployment/health_check.sh"`
+
+## Automated Agent Behavior
+- **Proactive Monitoring**: If a user reports the dashboard is slow or down, immediately check the remote logs and service status.
+- **Dependency Management**: If you update `requirements.txt` locally, suggest or perform a remote deployment to keep the VPS in sync.
+- **Model Transfers**: If training completes headlessly, use `scp` to bring models from `riccardo@<IP>:~/atari-rl-dashboard/saved_models/` to the local workspace.
+
+## Reference Paths
+- **Logs**: `/var/log/atari/`
+- **Service Config**: `/etc/systemd/system/atari.service`
+- **Database**: `/home/riccardo/atari-rl-dashboard/data/rl_training.db`
+

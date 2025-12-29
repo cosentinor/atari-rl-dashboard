@@ -14,7 +14,8 @@ echo "🚀 Starting Atari RL VPS Automation Setup..."
 echo "📦 Installing system dependencies..."
 apt-get update -qq
 # libgl1 is the modern replacement for the deprecated libgl1-mesa-glx
-apt-get install -y -qq python3-pip python3-venv git wget libgl1 libglib2.0-0 unattended-upgrades apt-listchanges curl mailutils
+# Added libsm6 libxext6 for OpenCV and swig for potential gymnasium build issues
+apt-get install -y -qq python3-pip python3-venv git wget libgl1 libglib2.0-0 libsm6 libxext6 unattended-upgrades apt-listchanges curl mailutils swig
 
 # 2. Configure Unattended-Upgrades (Security)
 echo "🔒 Configuring automatic security updates..."
@@ -32,6 +33,16 @@ if ! id "riccardo" &>/dev/null; then
     useradd -m -s /bin/bash riccardo
     usermod -aG sudo riccardo
     echo "riccardo ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+    
+    # Copy root's authorized_keys to riccardo so GitHub Actions can connect
+    mkdir -p /home/riccardo/.ssh
+    if [ -f /root/.ssh/authorized_keys ]; then
+        cp /root/.ssh/authorized_keys /home/riccardo/.ssh/
+        chown -R riccardo:riccardo /home/riccardo/.ssh
+        chmod 700 /home/riccardo/.ssh
+        chmod 600 /home/riccardo/.ssh/authorized_keys
+        echo "🔑 SSH keys copied from root to riccardo"
+    fi
 fi
 
 # 4. Clone repo and setup venv as 'riccardo'

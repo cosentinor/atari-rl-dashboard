@@ -14,12 +14,30 @@ jobs:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script_stop: true
           script: |
-            cd ~/atari-rl-dashboard
+            # Navigate to the app directory
+            # We use the absolute path to be sure, assuming 'riccardo' user
+            # or we try to find it in the home directory
+            APP_DIR="/home/riccardo/atari-rl-dashboard"
+            if [ ! -d "$APP_DIR" ]; then
+              APP_DIR="$HOME/atari-rl-dashboard"
+            fi
+            
+            echo "📂 Navigating to $APP_DIR..."
+            cd "$APP_DIR" || exit 1
+            
+            echo "📥 Pulling latest changes..."
             git pull origin main
-            # Update dependencies in the venv
+            
+            echo "📦 Updating dependencies..."
+            # Use the venv pip
             ./.venv/bin/pip install -r requirements.txt --quiet
+            
+            echo "⚙️ Restarting service..."
             # Restart the service to pick up changes
             sudo systemctl restart atari
+            
+            echo "✨ Deployment successful!"
             echo "✅ Deployed at $(date)"
 
