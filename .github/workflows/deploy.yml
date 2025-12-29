@@ -1,8 +1,9 @@
 name: Deploy to Hetzner
 
 on:
-  push:
-    branches: [main]
+  workflow_dispatch:  # Manual trigger only
+  # push:
+  #   branches: [main]  # Uncomment to enable auto-deploy
 
 jobs:
   deploy:
