@@ -28,19 +28,26 @@ Real-time visualization dashboard for training Rainbow DQN agents on Atari games
 
 ```
 atari/
-├── train.py            # Headless training script (for cloud)
-├── run_server.py       # Web UI entry point (for local)
-├── server.py           # Flask-SocketIO server
-├── rainbow_agent.py    # Rainbow DQN implementation
-├── config.py           # Training configuration
-├── model_manager.py    # Checkpoint management
-├── db_manager.py       # Training metrics database
-├── frame_streamer.py   # Frame encoding & streaming
-├── game_environments.py # Game management
-├── Dockerfile          # Docker image for cloud training
-├── docker-compose.yml  # Docker orchestration
-├── requirements.txt    # Dependencies
-├── saved_models/       # Trained model checkpoints
+├── train.py                        # Headless training script (standard)
+├── train_envpool.py                # Ultra-fast EnvPool training
+├── train_production_batch.py       # Production parallel orchestrator (NEW)
+├── monitor_production.py           # Production training monitor (NEW)
+├── setup_production.sh             # Production instance setup (NEW)
+├── launch_production_training.sh   # Production launcher (NEW)
+├── add_production_instance.sh      # SSH config helper (NEW)
+├── PRODUCTION_SETUP.md             # Production mode guide (NEW)
+├── run_server.py                   # Web UI entry point (for local)
+├── server.py                       # Flask-SocketIO server
+├── rainbow_agent.py                # Rainbow DQN implementation
+├── config.py                       # Training configuration
+├── model_manager.py                # Checkpoint management
+├── db_manager.py                   # Training metrics database
+├── frame_streamer.py               # Frame encoding & streaming
+├── game_environments.py            # Game management
+├── Dockerfile                      # Docker image for cloud training
+├── docker-compose.yml              # Docker orchestration
+├── requirements.txt                # Dependencies
+├── saved_models/                   # Trained model checkpoints
 └── frontend/
     ├── index.html
     ├── app.js
@@ -81,7 +88,25 @@ python train.py --list-games
 
 ## Training Workflow
 
-### Cloud Training (Thunder Compute / AWS / etc.)
+### ⚡ Production Mode Training (Recommended - Thunder Compute)
+
+**For maximum speed (6,000-24,000 eps/hr):**
+
+See **[PRODUCTION_SETUP.md](PRODUCTION_SETUP.md)** for complete guide.
+
+**Quick Start:**
+1. Create Thunder Compute Production Mode instance (not Prototyping!)
+2. Run `bash setup_production.sh` on instance
+3. Run `bash launch_production_training.sh`
+4. Monitor: `python monitor_production.py --host tnr-prod --watch`
+
+**Benefits:**
+- ✅ 10-20x faster than standard training
+- ✅ 6 games in parallel
+- ✅ Complete all 10 games in 2-3 days
+- ✅ No GPU restrictions
+
+### Cloud Training (Standard - Thunder Compute / AWS / etc.)
 
 1. **Clone and setup on cloud GPU**:
 ```bash
@@ -116,6 +141,17 @@ After downloading trained models:
 
 2. **Continue training**:
    - Same as above, but the agent will keep learning (slower locally)
+
+## Remote Management (for AI Agents)
+
+This project is configured for automated management via Cursor AI agents.
+
+- **Connection**: Connection details are specified in `.cursorrules`.
+- **Deployment**: Agents can deploy code using `git pull` and `systemctl restart` over SSH.
+- **Monitoring**: Logs are available at `/var/log/atari/` on the remote server.
+- **Health**: The `deployment/health_check.sh` script monitors service availability.
+
+To enable automation, ensure your SSH key is authorized on the VPS and the IP address is correctly referenced.
 
 ### Docker (Alternative)
 
