@@ -10,6 +10,18 @@ from dataclasses import dataclass
 logger = logging.getLogger(__name__)
 
 
+# Standard Atari action meanings
+# Based on ALE action space (varies by game)
+ACTION_MEANINGS = {
+    3: ['NOOP', 'UP', 'DOWN'],
+    4: ['NOOP', 'FIRE', 'RIGHT', 'LEFT'],
+    6: ['NOOP', 'FIRE', 'UP', 'RIGHT', 'LEFT', 'DOWN'],
+    9: ['NOOP', 'FIRE', 'UP', 'RIGHT', 'LEFT', 'DOWN', 'UPRIGHT', 'UPLEFT', 'DOWNRIGHT'],
+    14: ['NOOP', 'FIRE', 'UP', 'RIGHT', 'LEFT', 'DOWN', 'UPRIGHT', 'UPLEFT', 'DOWNRIGHT', 'DOWNLEFT', 'UPFIRE', 'RIGHTFIRE', 'LEFTFIRE', 'DOWNFIRE'],
+    18: ['NOOP', 'FIRE', 'UP', 'RIGHT', 'LEFT', 'DOWN', 'UPRIGHT', 'UPLEFT', 'DOWNRIGHT', 'DOWNLEFT', 'UPFIRE', 'RIGHTFIRE', 'LEFTFIRE', 'DOWNFIRE', 'UPRIGHTFIRE', 'UPLEFTFIRE', 'DOWNRIGHTFIRE', 'DOWNLEFTFIRE']
+}
+
+
 @dataclass
 class GameInfo:
     """Information about an Atari game."""
@@ -20,6 +32,7 @@ class GameInfo:
     action_space_size: int = 0
     observation_shape: tuple = (210, 160, 3)
     is_available: bool = True
+    action_names: List[str] = None
 
 
 # Default game catalog
@@ -29,70 +42,80 @@ ATARI_GAMES = [
         name='Pong',
         display_name='Pong',
         description='Classic Pong paddle game. Move paddle to hit ball past opponent.',
-        action_space_size=6
+        action_space_size=6,
+        action_names=ACTION_MEANINGS[6]
     ),
     GameInfo(
         id='ALE/Breakout-v5',
         name='Breakout',
         display_name='Breakout',
         description='Break bricks with a bouncing ball and paddle.',
-        action_space_size=4
+        action_space_size=4,
+        action_names=ACTION_MEANINGS[4]
     ),
     GameInfo(
         id='ALE/SpaceInvaders-v5',
         name='SpaceInvaders',
         display_name='Space Invaders',
         description='Defend Earth from descending alien invaders.',
-        action_space_size=6
+        action_space_size=6,
+        action_names=ACTION_MEANINGS[6]
     ),
     GameInfo(
         id='ALE/Asteroids-v5',
         name='Asteroids',
         display_name='Asteroids',
         description='Navigate and shoot asteroids in space.',
-        action_space_size=14
+        action_space_size=14,
+        action_names=ACTION_MEANINGS[14]
     ),
     GameInfo(
         id='ALE/MsPacman-v5',
         name='MsPacman',
         display_name='Ms. Pac-Man',
         description='Navigate mazes eating dots while avoiding ghosts.',
-        action_space_size=9
+        action_space_size=9,
+        action_names=ACTION_MEANINGS[9]
     ),
     GameInfo(
         id='ALE/Boxing-v5',
         name='Boxing',
         display_name='Boxing',
         description='Box against an opponent. Score points by landing punches.',
-        action_space_size=18
+        action_space_size=18,
+        action_names=ACTION_MEANINGS[18]
     ),
     GameInfo(
         id='ALE/Seaquest-v5',
         name='Seaquest',
         display_name='Seaquest',
         description='Underwater action game. Rescue divers and shoot enemies.',
-        action_space_size=18
+        action_space_size=18,
+        action_names=ACTION_MEANINGS[18]
     ),
     GameInfo(
         id='ALE/BeamRider-v5',
         name='BeamRider',
         display_name='Beam Rider',
         description='Sci-fi shooter on a grid of beams.',
-        action_space_size=9
+        action_space_size=9,
+        action_names=ACTION_MEANINGS[9]
     ),
     GameInfo(
         id='ALE/Enduro-v5',
         name='Enduro',
         display_name='Enduro',
         description='Racing game with day/night cycles and weather.',
-        action_space_size=9
+        action_space_size=9,
+        action_names=ACTION_MEANINGS[9]
     ),
     GameInfo(
         id='ALE/Freeway-v5',
         name='Freeway',
         display_name='Freeway',
         description='Guide a chicken across a busy highway.',
-        action_space_size=3
+        action_space_size=3,
+        action_names=ACTION_MEANINGS[3]
     )
 ]
 
@@ -153,6 +176,7 @@ class GameEnvironments:
                 'display_name': g.display_name,
                 'description': g.description,
                 'action_space_size': g.action_space_size,
+                'action_names': g.action_names if g.action_names else [],
                 'observation_shape': list(g.observation_shape),
                 'is_available': g.is_available
             }

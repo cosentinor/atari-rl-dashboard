@@ -1,0 +1,19 @@
+[Unit]
+Description=Atari RL Training Auto-Restart
+After=network.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/home/ubuntu/atari-rl-dashboard
+ExecStart=/bin/bash /home/ubuntu/atari-rl-dashboard/auto_restart_training.sh
+RemainAfterExit=yes
+StandardOutput=journal
+StandardError=journal
+
+# Restart policy
+Restart=on-failure
+RestartSec=60
+
+[Install]
+WantedBy=multi-user.target

@@ -24,8 +24,30 @@ logger = logging.getLogger(__name__)
 
 # Flask app
 app = Flask(__name__, static_folder='frontend')
-CORS(app)
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
+
+# CORS Configuration - Allow both development and production origins
+cors_origins = [
+    "http://localhost:3000",  # React development server
+    "https://atari.riccardocosentino.com",  # Production domain
+    "http://atari.riccardocosentino.com",  # Production HTTP fallback
+]
+
+CORS(app, resources={
+    r"/*": {
+        "origins": cors_origins,
+        "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        "allow_headers": ["Content-Type", "Authorization"],
+        "supports_credentials": True
+    }
+})
+
+socketio = SocketIO(
+    app, 
+    cors_allowed_origins=cors_origins,
+    async_mode='threading',
+    ping_timeout=60,
+    ping_interval=25
+)
 
 # Global state
 game_envs = GameEnvironments()
@@ -47,7 +69,7 @@ watch_mode_game = None
 watch_mode_thread = None
 
 # Speed control settings
-training_speed = "normal"  # normal, fast, turbo
+training_speed = "1x"  # 1x, 2x, 4x
 viz_frame_skip = 1  # 1 = every frame, 2 = every 2nd, etc.
 
 # Performance: Connection pooling
@@ -661,9 +683,9 @@ def handle_load_model(data):
 def handle_set_training_speed(data):
     """Set training speed."""
     global training_speed
-    speed = data.get('speed', 'normal')
+    speed = data.get('speed', '1x')
     
-    if speed in ['normal', 'fast', 'turbo']:
+    if speed in ['1x', '2x', '4x']:
         training_speed = speed
         logger.info(f"Training speed set to: {speed}")
         socketio.emit('speed_changed', {'trainingSpeed': speed})
@@ -829,12 +851,13 @@ def run_training_loop():
                     )
                 
                 # Speed control
-                if training_speed == "normal":
-                    time.sleep(0.033)  # ~30 FPS
-                elif training_speed == "fast":
-                    if frame_counter % 10 == 0:
-                        time.sleep(0.001)  # Minimal delay
-                # turbo = no delay
+                if training_speed == "1x":
+                    time.sleep(0.033)  # ~30 FPS (normal)
+                elif training_speed == "2x":
+                    time.sleep(0.016)  # ~60 FPS (2x speed)
+                elif training_speed == "4x":
+                    if frame_counter % 5 == 0:
+                        time.sleep(0.001)  # Minimal delay (4x speed)
                 
                 # Time-based autosave (every 90 seconds)
                 current_time = time.time()
