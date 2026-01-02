@@ -156,6 +156,9 @@ function AtariDashboard() {
       setIsTraining(true);
       setSessionId(data.sessionId);
       setStats(prev => ({ ...prev, bestReward: 0 }));
+      if (window.clearCanvas) {
+        window.clearCanvas();
+      }
       addLog(`Training started: ${data.game}`, 'success');
     });
     
@@ -479,7 +482,8 @@ function AtariDashboard() {
         {/* Row 1: Live Game + Controls/Stats */}
         <Grid container spacing={2} mb={2} alignItems="stretch">
           <Grid item xs={12} lg={8}>
-            <GameCanvas 
+            <GameCanvas
+              key={`${selectedGame || 'no-game'}-${sessionId || 'idle'}`}
               isTraining={isTraining}
               sessionId={sessionId}
               selectedGame={selectedGame}
