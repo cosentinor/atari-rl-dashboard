@@ -4,9 +4,9 @@ Flask-SocketIO server for real-time game streaming and training.
 """
 
 import logging
+import os
 import threading
 import time
-from datetime import datetime
 from flask import Flask, send_from_directory, jsonify, request
 from flask_socketio import SocketIO, emit
 from flask_cors import CORS
@@ -16,14 +16,21 @@ from frame_streamer import FrameStreamer
 from rainbow_agent import RainbowAgent, FrameStack, get_device
 from model_manager import ModelManager
 from db_manager import TrainingDatabase
-from config import AUTOSAVE_INTERVAL_SECONDS, AUTOSAVE_INTERVAL_EPISODES
+from config import AUTOSAVE_INTERVAL_SECONDS
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Frontend build location
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+FRONTEND_BUILD_DIR = os.environ.get(
+    "FRONTEND_BUILD_DIR",
+    os.path.join(BASE_DIR, "workspace", "reinforcement-learning", "atari-v2", "frontend", "build"),
+)
+
 # Flask app
-app = Flask(__name__, static_folder='frontend')
+app = Flask(__name__, static_folder=FRONTEND_BUILD_DIR, static_url_path="")
 
 # CORS Configuration - Allow both development and production origins
 cors_origins = [
@@ -58,6 +65,9 @@ db = TrainingDatabase()
 streamer = None
 training_thread = None
 is_training = False
+training_stop_event = threading.Event()
+training_time_lock = threading.Lock()
+last_training_save_time = None
 current_game = None
 current_session_id = None
 rainbow_agent = None
@@ -71,6 +81,26 @@ watch_mode_thread = None
 # Speed control settings
 training_speed = "1x"  # 1x, 2x, 4x
 viz_frame_skip = 1  # 1 = every frame, 2 = every 2nd, etc.
+viz_target_fps = 24  # Visualization FPS target for streaming
+
+# Per-game visualization settings (tuned for readability)
+DEFAULT_VIZ_SETTINGS = {
+    'target_fps': 24,
+    'frame_skip': 2,
+}
+
+GAME_VIZ_SETTINGS = {
+    'ALE/Pong-v5': {'target_fps': 24, 'frame_skip': 2},
+    'ALE/Breakout-v5': {'target_fps': 22, 'frame_skip': 2},
+    'ALE/SpaceInvaders-v5': {'target_fps': 20, 'frame_skip': 2},
+    'ALE/MsPacman-v5': {'target_fps': 18, 'frame_skip': 2},
+    'ALE/Asteroids-v5': {'target_fps': 20, 'frame_skip': 2},
+    'ALE/Boxing-v5': {'target_fps': 22, 'frame_skip': 2},
+    'ALE/Seaquest-v5': {'target_fps': 18, 'frame_skip': 2},
+    'ALE/BeamRider-v5': {'target_fps': 18, 'frame_skip': 2},
+    'ALE/Enduro-v5': {'target_fps': 20, 'frame_skip': 2},
+    'ALE/Freeway-v5': {'target_fps': 16, 'frame_skip': 2},
+}
 
 # Performance: Connection pooling
 MAX_CONCURRENT_TRAINING = 3  # Max simultaneous training sessions
@@ -80,16 +110,40 @@ training_queue = []
 
 # ============== HTTP Routes ==============
 
+def _frontend_ready():
+    return os.path.isfile(os.path.join(FRONTEND_BUILD_DIR, "index.html"))
+
+
+def _frontend_missing_response():
+    return jsonify({
+        "success": False,
+        "message": (
+            "Frontend build not found. Run `npm run build` in "
+            "workspace/reinforcement-learning/atari-v2/frontend or set "
+            "FRONTEND_BUILD_DIR to the build output."
+        ),
+    }), 404
+
+
 @app.route('/')
 def index():
     """Serve the React frontend."""
-    return send_from_directory('frontend', 'index.html')
+    if not _frontend_ready():
+        return _frontend_missing_response()
+    return send_from_directory(FRONTEND_BUILD_DIR, 'index.html')
 
 
 @app.route('/<path:filename>')
 def serve_static(filename):
     """Serve static files from frontend folder."""
-    return send_from_directory('frontend', filename)
+    if filename.startswith('api/'):
+        return jsonify({'success': False, 'message': 'Not found'}), 404
+    if not _frontend_ready():
+        return _frontend_missing_response()
+    target_path = os.path.join(FRONTEND_BUILD_DIR, filename)
+    if os.path.isfile(target_path):
+        return send_from_directory(FRONTEND_BUILD_DIR, filename)
+    return send_from_directory(FRONTEND_BUILD_DIR, 'index.html')
 
 
 @app.route('/api/games')
@@ -125,9 +179,10 @@ def get_game_models(game_id):
 def get_leaderboard():
     """Get training leaderboard."""
     game_id = request.args.get('game_id')
+    limit = request.args.get('limit', default=10, type=int)
     return jsonify({
         'success': True,
-        'leaderboard': db.get_leaderboard(game_id)
+        'leaderboard': db.get_leaderboard(game_id, limit=limit)
     })
 
 
@@ -158,200 +213,6 @@ def get_device_info():
         'device': str(device),
         'cuda_available': hasattr(__import__('torch'), 'cuda') and __import__('torch').cuda.is_available()
     })
-
-
-# ============== Visitor Management ==============
-
-@app.route('/api/visitor/register', methods=['POST'])
-def register_visitor():
-    """Register a new visitor or update existing."""
-    import uuid
-    data = request.get_json()
-    
-    email = data.get('email')
-    opt_in_marketing = data.get('opt_in_marketing', False)
-    
-    # Generate or get visitor UUID
-    visitor_uuid = str(uuid.uuid4())
-    
-    try:
-        visitor_id = db.create_or_update_visitor(
-            visitor_uuid=visitor_uuid,
-            email=email,
-            opt_in_marketing=opt_in_marketing
-        )
-        
-        # Log analytics event
-        db.log_analytics_event(
-            event_type='email_provided' if email else 'email_skipped',
-            visitor_id=visitor_id,
-            event_data={'email': email, 'opt_in': opt_in_marketing}
-        )
-        
-        return jsonify({
-            'success': True,
-            'visitor_uuid': visitor_uuid,
-            'visitor_id': visitor_id
-        })
-    except Exception as e:
-        logger.error(f"Failed to register visitor: {e}")
-        return jsonify({'success': False, 'message': str(e)}), 500
-
-
-# ============== Analytics ==============
-
-@app.route('/api/analytics/batch', methods=['POST'])
-def log_analytics_batch():
-    """Log multiple analytics events."""
-    data = request.get_json()
-    events = data.get('events', [])
-    
-    try:
-        for event in events:
-            visitor_uuid = event.get('visitor_uuid')
-            visitor_id = event.get('visitor_id')
-            
-            # Get visitor_id from UUID if not provided
-            if visitor_uuid and not visitor_id:
-                visitor = db.get_visitor_by_uuid(visitor_uuid)
-                if visitor:
-                    visitor_id = visitor['id']
-            
-            db.log_analytics_event(
-                event_type=event.get('event_type'),
-                visitor_id=visitor_id,
-                event_data=event.get('event_data'),
-                session_id=event.get('session_id')
-            )
-        
-        return jsonify({'success': True})
-    except Exception as e:
-        logger.error(f"Failed to log analytics: {e}")
-        return jsonify({'success': False, 'message': str(e)}), 500
-
-
-@app.route('/api/analytics/funnel')
-def get_conversion_funnel():
-    """Get conversion funnel data."""
-    try:
-        funnel = db.get_conversion_funnel()
-        return jsonify({'success': True, 'funnel': funnel})
-    except Exception as e:
-        logger.error(f"Failed to get funnel: {e}")
-        return jsonify({'success': False, 'message': str(e)}), 500
-
-
-# ============== Feedback ==============
-
-@app.route('/api/feedback', methods=['POST'])
-def submit_feedback():
-    """Submit user feedback."""
-    data = request.get_json()
-    
-    visitor_id = data.get('visitor_id')
-    category = data.get('category', 'general')
-    rating = data.get('rating')
-    message = data.get('message')
-    email = data.get('email')
-    
-    try:
-        # If email provided but no visitor_id, try to find or create visitor
-        if email and not visitor_id:
-            visitor = db.get_visitor_by_email(email)
-            if visitor:
-                visitor_id = visitor['id']
-        
-        feedback_id = db.submit_feedback(
-            visitor_id=visitor_id,
-            category=category,
-            rating=rating,
-            message=message
-        )
-        
-        # Log analytics event
-        if visitor_id:
-            db.log_analytics_event(
-                event_type='feedback_submitted',
-                visitor_id=visitor_id,
-                event_data={'category': category, 'rating': rating}
-            )
-        
-        return jsonify({'success': True, 'feedback_id': feedback_id})
-    except Exception as e:
-        logger.error(f"Failed to submit feedback: {e}")
-        return jsonify({'success': False, 'message': str(e)}), 500
-
-
-@app.route('/api/feedback/stats')
-def get_feedback_stats():
-    """Get feedback statistics."""
-    try:
-        stats = db.get_feedback_stats()
-        return jsonify({'success': True, 'stats': stats})
-    except Exception as e:
-        logger.error(f"Failed to get feedback stats: {e}")
-        return jsonify({'success': False, 'message': str(e)}), 500
-
-
-# ============== Challenges ==============
-
-@app.route('/api/challenges')
-def get_challenges():
-    """Get active challenges for visitor."""
-    visitor_id = request.args.get('visitor_id', type=int)
-    
-    try:
-        if visitor_id:
-            challenges = db.get_visitor_challenges(visitor_id)
-        else:
-            challenges = db.get_active_challenges()
-        
-        return jsonify({'success': True, 'challenges': challenges})
-    except Exception as e:
-        logger.error(f"Failed to get challenges: {e}")
-        return jsonify({'success': False, 'message': str(e)}), 500
-
-
-@app.route('/api/challenges/<int:challenge_id>/progress', methods=['POST'])
-def update_challenge_progress(challenge_id):
-    """Update challenge progress."""
-    data = request.get_json()
-    visitor_id = data.get('visitor_id')
-    progress = data.get('progress', 0)
-    completed = data.get('completed', False)
-    
-    try:
-        db.update_challenge_progress(visitor_id, challenge_id, progress, completed)
-        return jsonify({'success': True})
-    except Exception as e:
-        logger.error(f"Failed to update challenge progress: {e}")
-        return jsonify({'success': False, 'message': str(e)}), 500
-
-
-# ============== Public Stats ==============
-
-@app.route('/api/stats/public')
-def get_public_stats():
-    """Get public statistics for hero section."""
-    try:
-        visitor_stats = db.get_visitor_stats()
-        db_stats = db.get_database_stats()
-        
-        # Get models trained today (sessions completed today)
-        from datetime import date
-        today = date.today().isoformat()
-        
-        return jsonify({
-            'success': True,
-            'stats': {
-                'visitors': visitor_stats.get('total_visitors', 0),
-                'sessions': visitor_stats.get('total_sessions', 0),
-                'modelsTrainedToday': visitor_stats.get('visitors_today', 0)
-            }
-        })
-    except Exception as e:
-        logger.error(f"Failed to get public stats: {e}")
-        return jsonify({'success': False, 'message': str(e)}), 500
 
 
 # ============== Model Comparison ==============
@@ -391,7 +252,7 @@ def share_session(session_id):
     """Public share page for a training session."""
     # This would render a special share page
     # For now, redirect to main page
-    return send_from_directory('frontend', 'index.html')
+    return index()
 
 
 # ============== Watch Mode ==============
@@ -399,7 +260,7 @@ def share_session(session_id):
 @app.route('/api/watch/start', methods=['POST'])
 def start_watch_mode():
     """Start watch mode with best model for a game."""
-    global watch_mode_active, watch_mode_game, watch_mode_thread
+    global watch_mode_active, watch_mode_game
     
     data = request.get_json()
     game_id = data.get('game_id')
@@ -436,6 +297,12 @@ def stop_watch_mode():
     watch_mode_active = False
     return jsonify({'success': True})
 
+@app.route('/api/training/stop', methods=['POST'])
+def api_stop_training():
+    """Stop current training via HTTP."""
+    _stop_training()
+    return jsonify({'success': True})
+
 
 # ============== Queue Management ==============
 
@@ -453,13 +320,59 @@ def get_queue_status():
 
 # ============== WebSocket Events ==============
 
+def resolve_game_id(raw_game_id: str) -> str:
+    """Resolve game IDs from short names or display names to ALE ids."""
+    if not raw_game_id:
+        return raw_game_id
+
+    if raw_game_id in game_envs.games:
+        return raw_game_id
+
+    alt_id = raw_game_id.replace('_', '/')
+    if alt_id in game_envs.games:
+        return alt_id
+
+    normalized = ''.join(ch.lower() for ch in raw_game_id if ch.isalnum())
+    for game_info in game_envs.games.values():
+        if game_info.name.lower() == raw_game_id.lower():
+            return game_info.id
+        if game_info.display_name.lower() == raw_game_id.lower():
+            return game_info.id
+        if ''.join(ch.lower() for ch in game_info.name if ch.isalnum()) == normalized:
+            return game_info.id
+        if ''.join(ch.lower() for ch in game_info.display_name if ch.isalnum()) == normalized:
+            return game_info.id
+
+    return raw_game_id
+
+
+def get_viz_settings(game_id: str) -> dict:
+    """Return visualization settings for a given game."""
+    settings = GAME_VIZ_SETTINGS.get(game_id, DEFAULT_VIZ_SETTINGS)
+    return {
+        'target_fps': int(settings.get('target_fps', DEFAULT_VIZ_SETTINGS['target_fps'])),
+        'frame_skip': int(settings.get('frame_skip', DEFAULT_VIZ_SETTINGS['frame_skip'])),
+    }
+
+
 @socketio.on('connect')
-def handle_connect():
+def handle_connect(auth=None):
     """Handle new client connection."""
     logger.info("Client connected")
     
     # Send initial state
-    games = [{'id': g.id, 'name': g.display_name} for g in game_envs.games.values() if g.is_available]
+    games = [
+        {
+            'id': g.id,
+            'name': g.name,
+            'display_name': g.display_name,
+            'action_space_size': int(g.action_space_size) if g.action_space_size is not None else 0,
+            'action_names': g.action_names or [],
+            'is_available': g.is_available
+        }
+        for g in game_envs.games.values()
+        if g.is_available
+    ]
     
     # Get device info
     device = get_device()
@@ -472,34 +385,20 @@ def handle_connect():
         'savedModels': model_manager.get_all_games(),
         'device': str(device),
         'trainingSpeed': training_speed,
-        'vizFrameSkip': viz_frame_skip
+        'vizFrameSkip': viz_frame_skip,
+        'vizTargetFps': viz_target_fps
     })
 
 
 @socketio.on('disconnect')
 def handle_disconnect():
     """Handle client disconnect."""
-    global is_training, streamer, active_training_sessions
     logger.info("Client disconnected")
     
     # Stop training on disconnect as requested
     if is_training:
         logger.info("Stopping training due to client disconnect")
-        is_training = False
-        
-        # Decrement active sessions
-        if active_training_sessions > 0:
-            active_training_sessions -= 1
-        
-        if current_session_id:
-            db.end_session(current_session_id)
-        
-        if streamer:
-            streamer.stop()
-            streamer = None
-        
-        socketio.emit('training_stopped', {})
-        socketio.emit('status', {'isTraining': False, 'game': None})
+        _stop_training()
 
 
 @socketio.on('start_training')
@@ -507,7 +406,7 @@ def handle_start_training(data):
     """Start training for a game."""
     global is_training, current_game, current_session_id
     global streamer, training_thread, rainbow_agent, frame_stack
-    global active_training_sessions, training_queue
+    global active_training_sessions, viz_frame_skip, viz_target_fps
     
     logger.info(f"Received start_training event with data: {data}")
     
@@ -525,14 +424,27 @@ def handle_start_training(data):
         })
         return
     
-    game_id = data.get('game')
+    raw_game_id = data.get('game')
     load_checkpoint = data.get('loadCheckpoint')  # Optional checkpoint to load
     
-    if not game_id:
+    if not raw_game_id:
         emit('error', {'message': 'No game specified'})
         return
     
-    logger.info(f"Starting training for game_id: {game_id}")
+    game_id = resolve_game_id(raw_game_id)
+    if game_id != raw_game_id:
+        logger.info(f"Resolved game id '{raw_game_id}' -> '{game_id}'")
+
+    if game_id not in game_envs.games:
+        emit('error', {'message': f'Unknown game: {raw_game_id}'})
+        return
+
+    viz_settings = get_viz_settings(game_id)
+    viz_frame_skip = viz_settings['frame_skip']
+    viz_target_fps = viz_settings['target_fps']
+    logger.info(
+        f"Starting training for game_id: {game_id} | viz_fps={viz_target_fps} | frame_skip={viz_frame_skip}"
+    )
     
     try:
         # Create environment
@@ -565,7 +477,7 @@ def handle_start_training(data):
                 emit('log', {'message': f'Starting fresh (checkpoint load failed)', 'type': 'warning'})
         
         # Create streamer
-        streamer = FrameStreamer(env, socketio)
+        streamer = FrameStreamer(env, socketio, target_fps=viz_target_fps)
         
         # Create database session
         current_session_id = db.create_session(
@@ -575,6 +487,8 @@ def handle_start_training(data):
         )
         
         current_game = game_id
+        _start_training_activity(game_id)
+        training_stop_event.clear()
         is_training = True
         active_training_sessions += 1
         
@@ -582,7 +496,9 @@ def handle_start_training(data):
         emit('training_started', {
             'game': game_id,
             'sessionId': current_session_id,
-            'device': str(device)
+            'device': str(device),
+            'vizFrameSkip': viz_frame_skip,
+            'vizTargetFps': viz_target_fps
         })
         socketio.emit('status', {'isTraining': True, 'game': game_id})
         
@@ -597,34 +513,74 @@ def handle_start_training(data):
         emit('error', {'message': str(e)})
 
 
-@socketio.on('stop_training')
-def handle_stop_training():
-    """Stop current training."""
-    global is_training, streamer, active_training_sessions, training_queue
-    
+def _start_training_activity(game_id: str):
+    """Initialize training activity tracking for leaderboard stats."""
+    global last_training_save_time
+    if not game_id:
+        return
+    with training_time_lock:
+        last_training_save_time = time.time()
+    db.record_training_activity(game_id, sessions=1)
+
+
+def _record_training_time(game_id: str, now: float | None = None):
+    """Record elapsed training time at the configured autosave interval."""
+    global last_training_save_time
+    if not game_id:
+        return
+    if now is None:
+        now = time.time()
+    with training_time_lock:
+        if last_training_save_time is None:
+            last_training_save_time = now
+            return
+        elapsed = now - last_training_save_time
+        if elapsed < AUTOSAVE_INTERVAL_SECONDS:
+            return
+        last_training_save_time = now
+    seconds = int(elapsed)
+    if seconds <= 0:
+        return
+    db.record_training_activity(game_id, duration_seconds=seconds)
+
+
+def _finalize_training_activity(game_id: str, episodes: int = 0, steps: int = 0):
+    """Flush remaining training time and counters when training stops."""
+    global last_training_save_time
+    if not game_id:
+        return
+    now = time.time()
+    with training_time_lock:
+        if last_training_save_time is None:
+            elapsed_seconds = 0
+        else:
+            elapsed_seconds = int(now - last_training_save_time)
+            last_training_save_time = None
+    db.record_training_activity(
+        game_id=game_id,
+        duration_seconds=max(elapsed_seconds, 0),
+        episodes=episodes,
+        steps=steps
+    )
+
+
+def _stop_training():
+    """Shared stop logic for socket and HTTP."""
+    global is_training
+
     logger.info("Stopping training")
+    _finalize_training_activity(current_game)
     is_training = False
-    
-    # Decrement active sessions
-    if active_training_sessions > 0:
-        active_training_sessions -= 1
-    
-    # End database session
-    if current_session_id:
-        db.end_session(current_session_id)
-    
-    if streamer:
-        streamer.stop()
-        streamer = None
-    
+    training_stop_event.set()
+
     socketio.emit('training_stopped', {})
     socketio.emit('status', {'isTraining': False, 'game': None})
-    
-    # Process queue if there are waiting sessions
-    if training_queue and active_training_sessions < MAX_CONCURRENT_TRAINING:
-        next_request = training_queue.pop(0)
-        # Emit to the queued client to start their training
-        socketio.emit('queue_ready', {'data': next_request})
+
+
+@socketio.on('stop_training')
+def handle_stop_training(data=None):
+    """Stop current training."""
+    _stop_training()
 
 
 @socketio.on('save_model')
@@ -694,13 +650,21 @@ def handle_set_training_speed(data):
 @socketio.on('set_viz_speed')
 def handle_set_viz_speed(data):
     """Set visualization frame skip."""
-    global viz_frame_skip
+    global viz_frame_skip, viz_target_fps
     skip = data.get('frameSkip', 1)
+    target_fps = data.get('targetFps')
     
     if isinstance(skip, int) and 1 <= skip <= 100:
         viz_frame_skip = skip
         logger.info(f"Visualization frame skip set to: {skip}")
         socketio.emit('speed_changed', {'vizFrameSkip': skip})
+
+    if isinstance(target_fps, (int, float)) and 5 <= target_fps <= 60:
+        viz_target_fps = int(target_fps)
+        if streamer:
+            streamer.set_target_fps(viz_target_fps)
+        logger.info(f"Visualization target FPS set to: {viz_target_fps}")
+        socketio.emit('speed_changed', {'vizTargetFps': viz_target_fps})
 
 
 @socketio.on('delete_checkpoint')
@@ -763,93 +727,127 @@ def handle_get_history(data):
 
 # ============== Training Loop ==============
 
+def get_fire_action(game_id: str):
+    """Return the FIRE action index if available for the game."""
+    game_info = game_envs.get_game_info(game_id)
+    if not game_info or not game_info.action_names:
+        return None
+    try:
+        return game_info.action_names.index('FIRE')
+    except ValueError:
+        return None
+
+
 def run_training_loop():
     """Main training loop running in background thread."""
-    global is_training
-    
-    if not streamer or not rainbow_agent:
+    global is_training, active_training_sessions
+    global streamer, rainbow_agent, frame_stack, current_game, current_session_id
+
+    local_streamer = streamer
+    local_agent = rainbow_agent
+    local_frame_stack = frame_stack
+    local_game = current_game
+    local_session_id = current_session_id
+
+    if not local_streamer or not local_agent or not local_frame_stack:
         return
-    
-    episode = rainbow_agent.episode_count
-    total_steps = rainbow_agent.step_count
+
+    episode = local_agent.episode_count
+    total_steps = local_agent.step_count
     best_episode_reward = float('-inf')
-    
+    session_episode_count = 0
+    session_step_count = 0
+
     # Metrics for emission
     episode_start_time = time.time()
     frame_counter = 0
     step_sample_rate = 100  # Log step metrics every N steps
-    
+
     # Time-based autosave tracking
     last_autosave_time = time.time()
-    
+
     logger.info("Training loop started")
-    
+
     try:
-        while is_training and streamer and rainbow_agent:
+        while is_training and local_streamer and local_agent and not training_stop_event.is_set():
             episode += 1
-            rainbow_agent.episode_count = episode
-            
+            local_agent.episode_count = episode
+
             # Reset environment
-            obs, _ = streamer.env.reset()
-            state = frame_stack.reset(obs)
-            
+            obs, _ = local_streamer.env.reset()
+            state = local_frame_stack.reset(obs)
+            fire_action = get_fire_action(local_game)
+            if fire_action is not None:
+                try:
+                    obs, _, terminated, truncated, _ = local_streamer.env.step(fire_action)
+                    if terminated or truncated:
+                        obs, _ = local_streamer.env.reset()
+                    state = local_frame_stack.reset(obs)
+                except Exception as exc:
+                    logger.debug(f"Auto-fire failed for {local_game}: {exc}")
+
             episode_reward = 0
             step = 0
             done = False
             episode_start_time = time.time()
             losses = []
             q_values = []
-            
-            while is_training and streamer and not done:
+
+            while is_training and local_streamer and not done and not training_stop_event.is_set():
                 step += 1
                 total_steps += 1
+                session_step_count += 1
                 frame_counter += 1
-                
+
                 # Select action using Rainbow agent
-                action = rainbow_agent.select_action(state, training=True)
-                
+                action = local_agent.select_action(state, training=True)
+
                 # Step environment
-                next_obs, reward, terminated, truncated, info = streamer.env.step(action)
+                next_obs, reward, terminated, truncated, info = local_streamer.env.step(action)
                 done = terminated or truncated
                 episode_reward += reward
-                
+
                 # Process next state
-                next_state = frame_stack.push(next_obs)
-                
+                next_state = local_frame_stack.push(next_obs)
+
                 # Store transition
-                rainbow_agent.push_transition(state, action, reward, next_state, done)
-                
+                local_agent.push_transition(state, action, reward, next_state, done)
+
                 # Learn
-                loss = rainbow_agent.learn()
+                loss = local_agent.learn()
                 if loss is not None:
                     losses.append(loss)
-                
+
                 # Track Q-values
-                q_values.append(rainbow_agent.last_q_value)
-                
+                q_values.append(local_agent.last_q_value)
+
                 # Log step metrics (sampled)
-                if step % step_sample_rate == 0 and current_session_id:
+                if step % step_sample_rate == 0 and local_session_id:
                     db.log_step_metrics(
-                        current_session_id,
+                        local_session_id,
                         episode,
                         total_steps,
                         loss=loss,
                         action=action,
                         reward=reward
                     )
-                
+
                 # Emit frame (respecting frame skip for visualization)
-                # Check streamer is still valid (race condition fix)
-                if streamer and is_training and frame_counter % viz_frame_skip == 0:
-                    streamer.emit_frame(
+                if (
+                    local_streamer
+                    and is_training
+                    and not training_stop_event.is_set()
+                    and frame_counter % viz_frame_skip == 0
+                ):
+                    local_streamer.emit_frame(
                         episode=episode,
                         step=step,
                         reward=episode_reward,
-                        epsilon=rainbow_agent.current_epsilon,
+                        epsilon=local_agent.current_epsilon,
                         loss=loss,
-                        q_value=rainbow_agent.last_q_value
+                        q_value=local_agent.last_q_value
                     )
-                
+
                 # Speed control
                 if training_speed == "1x":
                     time.sleep(0.033)  # ~30 FPS (normal)
@@ -858,15 +856,16 @@ def run_training_loop():
                 elif training_speed == "4x":
                     if frame_counter % 5 == 0:
                         time.sleep(0.001)  # Minimal delay (4x speed)
-                
+
                 # Time-based autosave (every 90 seconds)
                 current_time = time.time()
+                _record_training_time(local_game, now=current_time)
                 if current_time - last_autosave_time >= AUTOSAVE_INTERVAL_SECONDS:
-                    if rainbow_agent and current_game:
+                    if local_agent and local_game:
                         try:
                             model_manager.save_checkpoint(
-                                rainbow_agent,
-                                current_game,
+                                local_agent,
+                                local_game,
                                 episode,
                                 episode_reward
                             )
@@ -878,23 +877,24 @@ def run_training_loop():
                             })
                         except Exception as e:
                             logger.error(f"Autosave failed: {e}")
-                
+
                 state = next_state
-            
+
             # Update epsilon at episode end for exploration decay
-            if rainbow_agent:
-                rainbow_agent.update_epsilon()
-            
+            if local_agent:
+                local_agent.update_epsilon()
+
             # Episode ended
             episode_duration = int((time.time() - episode_start_time) * 1000)
+            session_episode_count += 1
             avg_loss = sum(losses) / len(losses) if losses else 0
             avg_q = sum(q_values) / len(q_values) if q_values else 0
             max_q = max(q_values) if q_values else 0
-            
+
             # Log to database
-            if current_session_id:
+            if local_session_id:
                 db.log_episode(
-                    current_session_id,
+                    local_session_id,
                     episode,
                     episode_reward,
                     step,
@@ -903,16 +903,16 @@ def run_training_loop():
                     q_value_max=max_q,
                     duration_ms=episode_duration
                 )
-            
+
             # Check for best and auto-save
             if episode_reward > best_episode_reward:
                 best_episode_reward = episode_reward
-                
+
                 # Auto-save best model
                 if model_manager.should_auto_save(episode):
                     model_manager.save_checkpoint(
-                        rainbow_agent,
-                        current_game,
+                        local_agent,
+                        local_game,
                         episode,
                         episode_reward,
                         is_best=True
@@ -920,15 +920,19 @@ def run_training_loop():
             elif model_manager.should_auto_save(episode):
                 # Regular auto-save
                 model_manager.save_checkpoint(
-                    rainbow_agent,
-                    current_game,
+                    local_agent,
+                    local_game,
                     episode,
                     episode_reward
                 )
-            
-            if is_training:
-                epsilon = rainbow_agent.current_epsilon if rainbow_agent else 0
-                logger.info(f"Episode {episode}: reward={episode_reward:.1f}, steps={step}, loss={avg_loss:.4f}, ε={epsilon:.3f}")
+
+            if is_training and not training_stop_event.is_set():
+                epsilon = local_agent.current_epsilon if local_agent else 0
+                logger.info(
+                    f"Episode {episode}: reward={episode_reward:.1f}, steps={step}, "
+                    f"loss={avg_loss:.4f}, ε={epsilon:.3f}"
+                )
+                action_dist = db.get_action_distribution(local_session_id) if local_session_id else {}
                 socketio.emit('episode_end', {
                     'episode': episode,
                     'reward': episode_reward,
@@ -938,22 +942,50 @@ def run_training_loop():
                     'qValueMax': round(max_q, 2),
                     'duration': episode_duration,
                     'bestReward': best_episode_reward,
-                    'epsilon': round(epsilon, 4)
+                    'epsilon': round(epsilon, 4),
+                    'actionDistribution': action_dist
                 })
-    
+
     except Exception as e:
         logger.error(f"Training loop error: {e}")
         import traceback
         traceback.print_exc()
         socketio.emit('error', {'message': str(e)})
-    
+
     finally:
-        global active_training_sessions
         is_training = False
+        training_stop_event.clear()
+        _finalize_training_activity(
+            local_game,
+            episodes=session_episode_count,
+            steps=session_step_count
+        )
+
+        if local_session_id and current_session_id == local_session_id:
+            db.end_session(local_session_id)
+
         if active_training_sessions > 0:
             active_training_sessions -= 1
-        if streamer:
-            streamer.stop()
+
+        if local_streamer:
+            local_streamer.stop()
+
+        if streamer is local_streamer:
+            streamer = None
+        if rainbow_agent is local_agent:
+            rainbow_agent = None
+        if frame_stack is local_frame_stack:
+            frame_stack = None
+        if current_game == local_game:
+            current_game = None
+        if current_session_id == local_session_id:
+            current_session_id = None
+
+        # Process queue if there are waiting sessions
+        if training_queue and active_training_sessions < MAX_CONCURRENT_TRAINING:
+            next_request = training_queue.pop(0)
+            socketio.emit('queue_ready', {'data': next_request})
+
         logger.info("Training loop ended")
 
 

@@ -47,11 +47,7 @@ atari/
 ├── Dockerfile                      # Docker image for cloud training
 ├── docker-compose.yml              # Docker orchestration
 ├── requirements.txt                # Dependencies
-├── saved_models/                   # Trained model checkpoints
-└── frontend/
-    ├── index.html
-    ├── app.js
-    └── styles.css
+└── saved_models/                   # Trained model checkpoints
 ```
 
 ## 🚀 Quick Start Guides
@@ -72,6 +68,10 @@ python run_server.py
 ```
 
 3. Open http://localhost:5001 in your browser
+
+Frontend build notes:
+- The server will serve a built frontend if `FRONTEND_BUILD_DIR` points to the build output.
+- If no build is present, the root route returns a JSON warning and the API/WebSocket still work.
 
 ### Headless Training (Recommended for serious training)
 
