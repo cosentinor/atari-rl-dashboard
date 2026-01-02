@@ -13,9 +13,12 @@ import time
 import sys
 import os
 import signal
+import re
 from pathlib import Path
 from datetime import datetime
 import json
+
+from config import get_recommended_episodes
 
 # Production game list - ordered by training duration (longest first)
 PRODUCTION_GAMES = [
@@ -32,26 +35,16 @@ PRODUCTION_GAMES = [
 ]
 
 # Episode targets from config
-EPISODE_TARGETS = {
-    "MsPacman": 30000,
-    "Asteroids": 25000,
-    "Seaquest": 25000,
-    "BeamRider": 20000,
-    "SpaceInvaders": 15000,
-    "Enduro": 15000,
-    "Breakout": 10000,
-    "Boxing": 10000,
-    "Freeway": 3000,
-    "Pong": 3000
-}
+EPISODE_TARGETS = {game: get_recommended_episodes(game) for game in PRODUCTION_GAMES}
 
 class ProductionBatchTrainer:
     """Manages parallel training with intelligent queue management."""
     
-    def __init__(self, max_parallel=6, num_envs=256, batch_size=1024):
+    def __init__(self, max_parallel=6, num_envs=256, batch_size=1024, resume=False):
         self.max_parallel = max_parallel
         self.num_envs = num_envs
         self.batch_size = batch_size
+        self.resume = resume
         self.processes = {}  # game_name -> subprocess
         self.start_times = {}  # game_name -> start_time
         self.completed = []
@@ -66,17 +59,35 @@ class ProductionBatchTrainer:
     def get_episodes_target(self, game):
         """Get episode target for a game."""
         return EPISODE_TARGETS.get(game, 10000)
+
+    def get_latest_checkpoint(self, game):
+        """Find the latest checkpoint filename and episode for a game."""
+        game_dir = Path("saved_models") / game
+        if not game_dir.exists():
+            return None, 0
+        latest_ep = 0
+        latest_name = None
+        for path in game_dir.glob("checkpoint_ep*.pt"):
+            match = re.search(r"checkpoint_ep(\d+)_", path.name)
+            if match:
+                ep = int(match.group(1))
+                if ep > latest_ep:
+                    latest_ep = ep
+                    latest_name = path.name
+        return latest_name, latest_ep
     
-    def start_game(self, game):
+    def start_game(self, game, episodes=None, checkpoint_name=None):
         """Start training for a single game."""
         log_file = self.get_log_file(game)
-        episodes = self.get_episodes_target(game)
+        episodes = episodes if episodes is not None else self.get_episodes_target(game)
         
         print(f"🏃 Starting: {game}")
         print(f"   Episodes: {episodes:,}")
         print(f"   Envs: {self.num_envs}")
         print(f"   Batch size: {self.batch_size}")
         print(f"   Log: {log_file}")
+        if checkpoint_name:
+            print(f"   Resume: {checkpoint_name}")
         
         cmd = [
             sys.executable, "train_envpool.py",
@@ -85,6 +96,8 @@ class ProductionBatchTrainer:
             "--num-envs", str(self.num_envs),
             "--batch-size", str(self.batch_size)
         ]
+        if checkpoint_name:
+            cmd += ["--checkpoint", checkpoint_name]
         
         try:
             with open(log_file, "w") as f:
@@ -207,13 +220,32 @@ class ProductionBatchTrainer:
                 # Start new games if slots available
                 while len(self.processes) < self.max_parallel and queue:
                     game = queue.pop(0)
+                    episodes = self.get_episodes_target(game)
+                    checkpoint_name = None
+
+                    if self.resume:
+                        checkpoint_name, start_ep = self.get_latest_checkpoint(game)
+                        if start_ep >= episodes:
+                            print(f"✅ {game} already complete (checkpoint ep {start_ep} >= target {episodes})")
+                            self.completed.append(game)
+                            continue
+                        if checkpoint_name:
+                            remaining = max(episodes - start_ep, 0)
+                            if remaining == 0:
+                                print(f"✅ {game} already complete (checkpoint ep {start_ep} >= target {episodes})")
+                                self.completed.append(game)
+                                continue
+                            episodes = remaining
+                            print(f"🔁 Resuming {game} from ep {start_ep} ({checkpoint_name}); remaining: {episodes}")
+                        else:
+                            print(f"ℹ️  No checkpoint for {game}; starting fresh.")
                     
                     # Add startup delay for stability
                     if self.processes:
                         print(f"⏳ Waiting 10 seconds before starting next game...")
                         time.sleep(10)
                     
-                    self.start_game(game)
+                    self.start_game(game, episodes=episodes, checkpoint_name=checkpoint_name if self.resume else None)
                     print()
                 
                 # Print progress report periodically
@@ -312,6 +344,11 @@ Examples:
         default=1024,
         help="Batch size for learning (default: 1024)"
     )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Resume from latest checkpoint and train only remaining episodes"
+    )
     
     args = parser.parse_args()
     
@@ -334,7 +371,8 @@ Examples:
     trainer = ProductionBatchTrainer(
         max_parallel=args.parallel,
         num_envs=args.num_envs,
-        batch_size=args.batch_size
+        batch_size=args.batch_size,
+        resume=args.resume
     )
     
     success = trainer.run(games)
@@ -343,4 +381,3 @@ Examples:
 
 if __name__ == "__main__":
     main()
-

@@ -14,15 +14,15 @@ AUTOSAVE_INTERVAL_EPISODES = 100  # Also save every N episodes (backup)
 GAME_PRESETS = {
     "Pong": {
         "env_id": "ALE/Pong-v5",
-        "recommended_episodes": 3000,
+        "recommended_episodes": 10000,
         "difficulty": "easy",
-        "description": "Simple paddle game - great for testing"
+        "description": "Simple paddle game - stable baseline for longer runs"
     },
     "Freeway": {
         "env_id": "ALE/Freeway-v5",
-        "recommended_episodes": 3000,
+        "recommended_episodes": 10000,
         "difficulty": "easy",
-        "description": "Cross the road - simple reward structure"
+        "description": "Cross the road - simple reward structure, longer run for consistency"
     },
     "Breakout": {
         "env_id": "ALE/Breakout-v5",
@@ -168,4 +168,3 @@ def list_games() -> list:
 def get_all_game_env_ids() -> dict:
     """Get all game environment IDs."""
     return {name: preset["env_id"] for name, preset in GAME_PRESETS.items()}
-

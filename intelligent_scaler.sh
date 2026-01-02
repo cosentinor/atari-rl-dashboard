@@ -16,9 +16,6 @@ MEDIUM_SCRIPT="/home/ubuntu/atari-rl-dashboard/medium_training.sh"
 STOP_SCRIPT="/home/ubuntu/atari-rl-dashboard/stop_training.sh"
 LOG_FILE="/home/ubuntu/scaling_decisions.log"
 
-# Source state manager
-source "$STATE_MANAGER"
-
 # Logging function
 log_decision() {
     echo "$(date '+%Y-%m-%d %H:%M:%S') | $1" | tee -a "$LOG_FILE"

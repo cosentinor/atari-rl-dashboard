@@ -21,11 +21,11 @@ echo "Starting 4 games with moderate settings..."
 echo ""
 
 # Start optimized batch training with medium settings
-nohup python train_production_batch.py \
+PYTHONUNBUFFERED=1 nohup python -u train_production_batch.py \
     --parallel 4 \
     --batch-size 1024 \
     --num-envs 64 \
-    --games MsPacman Asteroids BeamRider Seaquest \
+    --resume \
     > medium_training.log 2>&1 &
 
 sleep 5
@@ -42,15 +42,12 @@ echo "GPU Status:"
 nvidia-smi --query-gpu=utilization.gpu,memory.used,temperature.gpu --format=csv,noheader
 echo ""
 echo "Games training:"
-echo "  1. MsPacman (30,000 episodes)"
-echo "  2. Asteroids (25,000 episodes)"
-echo "  3. BeamRider (20,000 episodes)"
-echo "  4. Seaquest (25,000 episodes)"
+echo "  - Auto-selected from remaining games"
+echo "  - Resumes from latest checkpoints"
 echo ""
 echo "Monitor with:"
 echo "  tail -f medium_training.log"
-echo "  tail -f training_mspacman.log"
+echo "  tail -f training_*.log"
 echo ""
-echo "This will train 4 games in parallel with balanced settings."
-echo "Should complete in ~5-7 days if stable."
+echo "This will train up to 4 games in parallel with balanced settings."
 echo "========================================"

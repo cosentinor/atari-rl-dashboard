@@ -6,6 +6,7 @@ Handles saving, loading, and managing model checkpoints.
 import os
 import json
 import logging
+import shutil
 from datetime import datetime
 from typing import Dict, List, Optional, Any
 from pathlib import Path
@@ -114,8 +115,11 @@ class ModelManager:
             **(metadata or {})
         }
         
-        # Save using agent's save method
-        agent.save(str(filepath), episode, reward, full_metadata)
+        # Save using agent's save method (with cleanup fallback)
+        self._ensure_disk_space()
+        if not self._safe_save(agent, str(filepath), episode, reward, full_metadata):
+            logger.error(f"Checkpoint save failed after cleanup; skipping save for {filepath}")
+            return ""
         
         # Update registry
         clean_name = game_id.split("/")[-1].replace("-v5", "").replace("-", "_")
@@ -143,7 +147,8 @@ class ModelManager:
             
             # Also save as best_model.pt
             best_path = game_dir / "best_model.pt"
-            agent.save(str(best_path), episode, reward, full_metadata)
+            if not self._safe_save(agent, str(best_path), episode, reward, full_metadata):
+                logger.warning(f"Failed to save best_model for {game_id}")
         
         # Cleanup old checkpoints (keep max_checkpoints_per_game)
         self._cleanup_old_checkpoints(game_dir, clean_name)
@@ -184,6 +189,60 @@ class ModelManager:
             # Save registry after cleanup if anything changed
             if removed_any:
                 self._save_registry()
+
+        # Also prune on-disk checkpoints in case registry is stale
+        self._prune_game_dir(game_dir)
+
+    def _prune_game_dir(self, game_dir: Path):
+        """Prune checkpoints on disk by mtime to enforce retention."""
+        try:
+            checkpoints = sorted(
+                game_dir.glob("checkpoint_ep*.pt"),
+                key=lambda p: p.stat().st_mtime,
+                reverse=True
+            )
+            for path in checkpoints[self.max_checkpoints_per_game:]:
+                try:
+                    path.unlink()
+                    logger.info(f"Removed old checkpoint: {path}")
+                except Exception as e:
+                    logger.warning(f"Failed to remove checkpoint {path}: {e}")
+        except Exception as e:
+            logger.warning(f"Failed to prune checkpoints in {game_dir}: {e}")
+
+    def _prune_all_checkpoints(self):
+        """Prune checkpoints across all games to enforce retention."""
+        for game_dir in self.base_dir.iterdir():
+            if game_dir.is_dir():
+                self._prune_game_dir(game_dir)
+
+    def _ensure_disk_space(self, min_free_gb: float = 5.0):
+        """Ensure enough free disk space for saving checkpoints."""
+        try:
+            usage = shutil.disk_usage(self.base_dir)
+            free_gb = usage.free / (1024 ** 3)
+            if free_gb < min_free_gb:
+                logger.warning(
+                    f"Low disk space ({free_gb:.1f} GB free). Pruning checkpoints."
+                )
+                self._prune_all_checkpoints()
+        except Exception as e:
+            logger.warning(f"Disk space check failed: {e}")
+
+    def _safe_save(self, agent, filepath: str, episode: int, reward: float, metadata: Dict) -> bool:
+        """Save a checkpoint with a cleanup + retry fallback."""
+        try:
+            agent.save(filepath, episode, reward, metadata)
+            return True
+        except Exception as e:
+            logger.warning(f"Checkpoint save failed: {e}. Pruning and retrying.")
+            self._prune_all_checkpoints()
+            try:
+                agent.save(filepath, episode, reward, metadata)
+                return True
+            except Exception as e2:
+                logger.error(f"Checkpoint save failed after cleanup: {e2}")
+                return False
     
     def load_checkpoint(
         self,
@@ -295,4 +354,3 @@ class ModelManager:
             "exported_at": datetime.now().isoformat()
         })
         logger.info(f"Model exported to {export_path}")
-
