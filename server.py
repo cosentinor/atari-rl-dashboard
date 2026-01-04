@@ -107,6 +107,36 @@ MAX_CONCURRENT_TRAINING = 3  # Max simultaneous training sessions
 active_training_sessions = 0
 training_queue = []
 
+def _env_int(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None or raw == "":
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        logger.warning("Invalid int for %s=%r; using default %s", name, raw, default)
+        return default
+
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _trim_memory():
+    """Best-effort release of unused heap memory after training ends."""
+    try:
+        import gc
+        gc.collect()
+        if os.name == "posix":
+            import ctypes
+            libc = ctypes.CDLL("libc.so.6")
+            libc.malloc_trim(0)
+    except Exception:
+        pass
+
 
 # ============== HTTP Routes ==============
 
@@ -458,10 +488,35 @@ def handle_start_training(data):
         
         # Create Rainbow agent
         device = get_device()
+        buffer_size = _env_int("RL_BUFFER_SIZE", 100000)
+        min_buffer_size = _env_int("RL_MIN_BUFFER_SIZE", 1000)
+        batch_size = _env_int("RL_BATCH_SIZE", 32)
+        n_step = _env_int("RL_N_STEP", 3)
+        store_uint8 = _env_bool("RL_STORE_UINT8", False)
+        if min_buffer_size > buffer_size:
+            logger.warning(
+                "RL_MIN_BUFFER_SIZE %s exceeds RL_BUFFER_SIZE %s; clamping.",
+                min_buffer_size,
+                buffer_size,
+            )
+            min_buffer_size = buffer_size
+        logger.info(
+            "Training config: buffer_size=%s min_buffer_size=%s batch_size=%s n_step=%s store_uint8=%s",
+            buffer_size,
+            min_buffer_size,
+            batch_size,
+            n_step,
+            store_uint8,
+        )
         rainbow_agent = RainbowAgent(
             state_shape=(4, 84, 84),
             num_actions=num_actions,
-            device=device
+            device=device,
+            buffer_size=buffer_size,
+            min_buffer_size=min_buffer_size,
+            batch_size=batch_size,
+            n_step=n_step,
+            store_uint8=store_uint8
         )
         
         # Load checkpoint if specified
@@ -980,6 +1035,8 @@ def run_training_loop():
             current_game = None
         if current_session_id == local_session_id:
             current_session_id = None
+
+        _trim_memory()
 
         # Process queue if there are waiting sessions
         if training_queue and active_training_sessions < MAX_CONCURRENT_TRAINING:

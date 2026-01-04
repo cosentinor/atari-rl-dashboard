@@ -273,7 +273,8 @@ class PrioritizedReplayBuffer:
         beta_start: float = 0.4,
         beta_frames: int = 100000,
         n_step: int = 3,
-        gamma: float = 0.99
+        gamma: float = 0.99,
+        store_uint8: bool = False
     ):
         self.capacity = capacity
         self.alpha = alpha  # Prioritization exponent
@@ -281,6 +282,7 @@ class PrioritizedReplayBuffer:
         self.beta_frames = beta_frames
         self.n_step = n_step
         self.gamma = gamma
+        self.store_uint8 = store_uint8
         
         self.tree = SumTree(capacity)
         self.max_priority = 1.0
@@ -288,6 +290,14 @@ class PrioritizedReplayBuffer:
         
         # N-step buffer
         self.n_step_buffer = deque(maxlen=n_step)
+
+    def _maybe_quantize(self, state: np.ndarray) -> np.ndarray:
+        """Optionally store states as uint8 to reduce memory usage."""
+        if not self.store_uint8:
+            return state
+        if state.dtype == np.uint8:
+            return state
+        return np.clip(state * 255.0, 0, 255).astype(np.uint8)
     
     def _get_beta(self) -> float:
         """Anneal beta from beta_start to 1.0."""
@@ -329,6 +339,8 @@ class PrioritizedReplayBuffer:
         action_0 = self.n_step_buffer[0][1]
         
         # Store with max priority
+        state_0 = self._maybe_quantize(state_0)
+        next_state_n = self._maybe_quantize(next_state_n)
         transition = (state_0, action_0, n_step_return, next_state_n, done_n)
         self.tree.add(self.max_priority ** self.alpha, transition)
         
@@ -366,6 +378,10 @@ class PrioritizedReplayBuffer:
         rewards = np.array([s[2] for s in samples])
         next_states = np.array([s[3] for s in samples])
         dones = np.array([s[4] for s in samples])
+
+        if self.store_uint8:
+            states = states.astype(np.float32) / 255.0
+            next_states = next_states.astype(np.float32) / 255.0
         
         return (
             torch.FloatTensor(states),
@@ -419,6 +435,8 @@ class RainbowAgent:
         beta_frames: int = 100000,
         # N-step
         n_step: int = 3,
+        # Memory optimization
+        store_uint8: bool = False,
         # Noisy nets - increased for better exploration
         noisy_std: float = 0.7,
         # Early exploration fallback
@@ -433,6 +451,7 @@ class RainbowAgent:
         self.min_buffer_size = min_buffer_size
         self.target_update_freq = target_update_freq
         self.n_step = n_step
+        self.store_uint8 = store_uint8
         
         # Epsilon-greedy fallback for early exploration
         self.epsilon_start = epsilon_start
@@ -463,7 +482,7 @@ class RainbowAgent:
         
         # Replay buffer
         self.buffer = PrioritizedReplayBuffer(
-            buffer_size, alpha, beta_start, beta_frames, n_step, gamma
+            buffer_size, alpha, beta_start, beta_frames, n_step, gamma, store_uint8=store_uint8
         )
         
         # Training state
@@ -664,6 +683,7 @@ class RainbowAgent:
             'gamma': self.gamma,
             'batch_size': self.batch_size,
             'buffer_size': self.buffer.capacity,
+            'store_uint8': self.store_uint8,
             'target_update_freq': self.target_update_freq,
             'num_atoms': self.num_atoms,
             'v_min': self.v_min,
@@ -704,7 +724,11 @@ class RainbowAgent:
     
     def load(self, path: str) -> Dict[str, Any]:
         """Load model checkpoint."""
-        checkpoint = torch.load(path, map_location=self.device)
+        try:
+            checkpoint = torch.load(path, map_location=self.device, weights_only=False)
+        except TypeError:
+            # Older torch versions don't support weights_only.
+            checkpoint = torch.load(path, map_location=self.device)
         
         self.online_net.load_state_dict(checkpoint['online_net'])
         self.target_net.load_state_dict(checkpoint['target_net'])
@@ -761,4 +785,3 @@ class FrameStack:
         frame = frame.astype(np.float32) / 255.0
         
         return frame
-

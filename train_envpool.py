@@ -107,7 +107,14 @@ def train_envpool(
         logger.error("EnvPool not installed! Run: pip install envpool")
         logger.error("Falling back to standard training...")
         from train_fast import train_game_fast
-        return train_game_fast(game_name, episodes, num_envs=16, batch_size=256)
+        return train_game_fast(
+            game_name,
+            episodes,
+            num_envs=num_envs,
+            batch_size=batch_size,
+            checkpoint_path=checkpoint_path,
+            save_dir=save_dir
+        )
     
     logger.info("=" * 60)
     logger.info(f"⚡ ENVPOOL ULTRA-FAST TRAINING: {game_name}")
@@ -401,4 +408,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

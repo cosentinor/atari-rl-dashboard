@@ -7,6 +7,7 @@ import os
 import json
 import logging
 import shutil
+import re
 from datetime import datetime
 from typing import Dict, List, Optional, Any
 from pathlib import Path
@@ -196,12 +197,35 @@ class ModelManager:
     def _prune_game_dir(self, game_dir: Path):
         """Prune checkpoints on disk by mtime to enforce retention."""
         try:
-            checkpoints = sorted(
-                game_dir.glob("checkpoint_ep*.pt"),
+            checkpoints = list(game_dir.glob("checkpoint_ep*.pt"))
+            if not checkpoints:
+                return
+
+            # Keep the highest-episode checkpoint to avoid losing progress.
+            highest_path = None
+            highest_ep = -1
+            for path in checkpoints:
+                match = re.search(r"checkpoint_ep(\d+)_", path.name)
+                if match:
+                    ep = int(match.group(1))
+                    if ep > highest_ep:
+                        highest_ep = ep
+                        highest_path = path
+
+            # Keep newest checkpoints by mtime.
+            newest = sorted(
+                checkpoints,
                 key=lambda p: p.stat().st_mtime,
                 reverse=True
-            )
-            for path in checkpoints[self.max_checkpoints_per_game:]:
+            )[:self.max_checkpoints_per_game]
+
+            keep = set(newest)
+            if highest_path:
+                keep.add(highest_path)
+
+            for path in checkpoints:
+                if path in keep:
+                    continue
                 try:
                     path.unlink()
                     logger.info(f"Removed old checkpoint: {path}")

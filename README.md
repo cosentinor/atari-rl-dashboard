@@ -72,6 +72,7 @@ python run_server.py
 Frontend build notes:
 - The server will serve a built frontend if `FRONTEND_BUILD_DIR` points to the build output.
 - If no build is present, the root route returns a JSON warning and the API/WebSocket still work.
+- Frontend source is maintained separately; this repo only expects a built bundle (or an external host).
 
 ### Headless Training (Recommended for serious training)
 
