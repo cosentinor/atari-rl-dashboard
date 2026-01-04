@@ -1,6 +1,6 @@
 #!/bin/bash
 # Cleanup script - keeps disk usage under control
-APP_DIR="/home/ubuntu/atari-rl-dashboard"
+APP_DIR="/home/riccardo/atari-rl-dashboard"
 MAX_CHECKPOINTS=10  # Keep last N checkpoints per game
 
 # Clean old checkpoints (keep newest 10 per game)
