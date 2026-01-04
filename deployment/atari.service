@@ -10,6 +10,10 @@ Type=simple
 User=riccardo
 Group=riccardo
 WorkingDirectory=/home/riccardo/atari-rl-dashboard
+Environment=FRONTEND_BUILD_DIR=/home/riccardo/atari-rl-dashboard/frontend
+Environment=RL_BUFFER_SIZE=10000
+Environment=RL_MIN_BUFFER_SIZE=1000
+Environment=RL_STORE_UINT8=1
 # Use the virtualenv's python
 ExecStart=/home/riccardo/atari-rl-dashboard/.venv/bin/python run_server.py
 Restart=always
@@ -25,4 +29,3 @@ PrivateTmp=true
 
 [Install]
 WantedBy=multi-user.target
-
