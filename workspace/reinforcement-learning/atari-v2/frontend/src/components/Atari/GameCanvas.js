@@ -5,6 +5,7 @@
 
 import { useRef, useEffect, useCallback, useState } from 'react';
 import Card from "@mui/material/Card";
+import Icon from "@mui/material/Icon";
 import MDBox from "components/MDBox";
 import MDTypography from "components/MDTypography";
 import ShareButton from "components/Atari/ShareButton";
@@ -148,7 +149,7 @@ function GameCanvas({ isTraining, sessionId, selectedGame, stats }) {
       <MDBox p={2}>
         <MDBox display="flex" justifyContent="space-between" alignItems="center" mb={1}>
           <MDTypography variant="h6" fontWeight="medium" display="flex" alignItems="center" gap={0.75}>
-            <span role="img" aria-label="live game">🎮</span>
+            <Icon sx={{ fontSize: '1.3rem !important', color: '#0ea5e9' }}>sports_esports</Icon>
             Live Game {isTraining && <span style={{ color: '#4caf50', fontSize: '0.8rem' }}>● TRAINING</span>}
           </MDTypography>
           <MDBox display="flex" alignItems="center" gap={1}>
@@ -208,7 +209,7 @@ function GameCanvas({ isTraining, sessionId, selectedGame, stats }) {
               }}
             >
               <MDTypography variant="h1" color="white" mb={1} sx={{ fontSize: '4rem' }}>
-                🎮
+                <Icon sx={{ fontSize: '3.2rem !important', color: '#0ea5e9' }}>sports_esports</Icon>
               </MDTypography>
               <MDTypography variant="h6" color="white" fontWeight="medium">
                 Select a game and click Start

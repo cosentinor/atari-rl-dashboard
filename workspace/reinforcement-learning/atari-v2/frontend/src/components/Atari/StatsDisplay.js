@@ -68,6 +68,14 @@ function StatsDisplay({ stats }) {
     }
   ];
 
+  const tooltipSx = {
+    backgroundColor: 'rgba(15, 23, 42, 0.82)',
+    border: '1px solid rgba(148, 163, 184, 0.3)',
+    color: '#e2e8f0',
+    fontSize: '0.75rem',
+    boxShadow: '0 12px 24px rgba(0,0,0,0.35)',
+  };
+
   return (
     <Card
       sx={{
@@ -86,31 +94,24 @@ function StatsDisplay({ stats }) {
           }}
         >
           {statCards.map((stat) => (
-            <Tooltip 
+            <MDBox
               key={stat.key}
-              title={stat.tooltip}
-              arrow
-              placement="top"
-              enterDelay={200}
+              sx={{
+                padding: '12px',
+                borderRadius: '10px',
+                backgroundColor: 'rgba(255,255,255,0.03)',
+                border: '1px solid rgba(255,255,255,0.06)',
+                transition: 'all 0.2s ease',
+                minHeight: '82px',
+              }}
             >
-              <MDBox
-                sx={{
-                  padding: '12px',
-                  borderRadius: '10px',
-                  backgroundColor: 'rgba(255,255,255,0.03)',
-                  border: '1px solid rgba(255,255,255,0.06)',
-                  cursor: 'help',
-                  transition: 'all 0.2s ease',
-                  minHeight: '82px',
-                }}
+              <MDBox 
+                display="flex" 
+                alignItems="center" 
+                justifyContent="space-between" 
+                mb={1}
               >
-                <MDBox 
-                  display="flex" 
-                  alignItems="center" 
-                  justifyContent="space-between" 
-                  mb={1}
-                >
-                  <MDTypography
+                <MDTypography
                   sx={{ 
                     color: 'rgba(255,255,255,0.7)', 
                     fontSize: '0.68rem', 
@@ -119,26 +120,38 @@ function StatsDisplay({ stats }) {
                     letterSpacing: '0.5px'
                   }}
                 >
-                    {stat.title}
-                  </MDTypography>
-                  <Icon sx={{ color: stat.color, fontSize: '1rem !important' }}>{stat.icon}</Icon>
-                </MDBox>
-                <MDTypography
-                  variant="h6"
-                  fontWeight="bold"
-                  sx={{ color: stat.color, lineHeight: 1.05, fontSize: '1.1rem' }}
-                >
-                  {stat.value}
+                  {stat.title}
                 </MDTypography>
-                <MDTypography
-                  variant="caption"
-                  color="text"
-                  sx={{ opacity: 0.6, fontSize: '0.7rem', whiteSpace: 'nowrap' }}
+                <Tooltip
+                  title={stat.tooltip}
+                  arrow
+                  placement="top"
+                  enterDelay={150}
+                  componentsProps={{
+                    tooltip: { sx: tooltipSx },
+                    arrow: { sx: { color: tooltipSx.backgroundColor } },
+                  }}
                 >
-                  {stat.subtitle}
-                </MDTypography>
+                  <Icon sx={{ color: stat.color, fontSize: '1rem !important', cursor: 'help' }}>
+                    {stat.icon}
+                  </Icon>
+                </Tooltip>
               </MDBox>
-            </Tooltip>
+              <MDTypography
+                variant="h6"
+                fontWeight="bold"
+                sx={{ color: stat.color, lineHeight: 1.05, fontSize: '1.1rem' }}
+              >
+                {stat.value}
+              </MDTypography>
+              <MDTypography
+                variant="caption"
+                color="text"
+                sx={{ opacity: 0.6, fontSize: '0.7rem', whiteSpace: 'nowrap' }}
+              >
+                {stat.subtitle}
+              </MDTypography>
+            </MDBox>
           ))}
         </MDBox>
       </MDBox>

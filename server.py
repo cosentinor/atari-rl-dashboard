@@ -35,6 +35,8 @@ app = Flask(__name__, static_folder=FRONTEND_BUILD_DIR, static_url_path="")
 # CORS Configuration - Allow both development and production origins
 cors_origins = [
     "http://localhost:3000",  # React development server
+    "http://localhost:5001",  # React build served by this backend
+    "http://127.0.0.1:5001",  # Loopback for local access
     "https://atari.riccardocosentino.com",  # Production domain
     "http://atari.riccardocosentino.com",  # Production HTTP fallback
 ]
@@ -155,12 +157,20 @@ def _frontend_missing_response():
     }), 404
 
 
+def _send_frontend_index():
+    response = send_from_directory(FRONTEND_BUILD_DIR, 'index.html', conditional=False)
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
+
+
 @app.route('/')
 def index():
     """Serve the React frontend."""
     if not _frontend_ready():
         return _frontend_missing_response()
-    return send_from_directory(FRONTEND_BUILD_DIR, 'index.html')
+    return _send_frontend_index()
 
 
 @app.route('/<path:filename>')
@@ -173,7 +183,7 @@ def serve_static(filename):
     target_path = os.path.join(FRONTEND_BUILD_DIR, filename)
     if os.path.isfile(target_path):
         return send_from_directory(FRONTEND_BUILD_DIR, filename)
-    return send_from_directory(FRONTEND_BUILD_DIR, 'index.html')
+    return _send_frontend_index()
 
 
 @app.route('/api/games')

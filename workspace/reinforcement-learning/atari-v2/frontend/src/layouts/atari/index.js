@@ -40,18 +40,98 @@ import EmailModal from "components/Atari/EmailModal";
 import socketService from "services/socket.service";
 import analyticsService from "services/analytics.service";
 import config from "config";
+import { PODCAST } from "constants/podcast";
+
+const ACTION_MEANINGS = {
+  3: ['NOOP', 'UP', 'DOWN'],
+  4: ['NOOP', 'FIRE', 'RIGHT', 'LEFT'],
+  6: ['NOOP', 'FIRE', 'UP', 'RIGHT', 'LEFT', 'DOWN'],
+  9: ['NOOP', 'FIRE', 'UP', 'RIGHT', 'LEFT', 'DOWN', 'UPRIGHT', 'UPLEFT', 'DOWNRIGHT'],
+  14: ['NOOP', 'FIRE', 'UP', 'RIGHT', 'LEFT', 'DOWN', 'UPRIGHT', 'UPLEFT', 'DOWNRIGHT', 'DOWNLEFT', 'UPFIRE', 'RIGHTFIRE', 'LEFTFIRE', 'DOWNFIRE'],
+  18: ['NOOP', 'FIRE', 'UP', 'RIGHT', 'LEFT', 'DOWN', 'UPRIGHT', 'UPLEFT', 'DOWNRIGHT', 'DOWNLEFT', 'UPFIRE', 'RIGHTFIRE', 'LEFTFIRE', 'DOWNFIRE', 'UPRIGHTFIRE', 'UPLEFTFIRE', 'DOWNRIGHTFIRE', 'DOWNLEFTFIRE'],
+};
 
 const DEFAULT_GAMES = [
-  { id: 'Pong', name: 'Pong', display_name: 'Pong', trained_episodes: null },
-  { id: 'Breakout', name: 'Breakout', display_name: 'Breakout', trained_episodes: null },
-  { id: 'SpaceInvaders', name: 'SpaceInvaders', display_name: 'Space Invaders', trained_episodes: null },
-  { id: 'MsPacman', name: 'MsPacman', display_name: 'Ms. Pac-Man', trained_episodes: null },
-  { id: 'Asteroids', name: 'Asteroids', display_name: 'Asteroids', trained_episodes: null },
-  { id: 'Boxing', name: 'Boxing', display_name: 'Boxing', trained_episodes: null },
-  { id: 'BeamRider', name: 'BeamRider', display_name: 'Beam Rider', trained_episodes: null },
-  { id: 'Seaquest', name: 'Seaquest', display_name: 'Seaquest', trained_episodes: null },
-  { id: 'Enduro', name: 'Enduro', display_name: 'Enduro', trained_episodes: null },
-  { id: 'Freeway', name: 'Freeway', display_name: 'Freeway', trained_episodes: null },
+  {
+    id: 'ALE/Pong-v5',
+    name: 'Pong',
+    display_name: 'Pong',
+    trained_episodes: null,
+    action_space_size: 6,
+    action_names: ACTION_MEANINGS[6],
+  },
+  {
+    id: 'ALE/Breakout-v5',
+    name: 'Breakout',
+    display_name: 'Breakout',
+    trained_episodes: null,
+    action_space_size: 4,
+    action_names: ACTION_MEANINGS[4],
+  },
+  {
+    id: 'ALE/SpaceInvaders-v5',
+    name: 'SpaceInvaders',
+    display_name: 'Space Invaders',
+    trained_episodes: null,
+    action_space_size: 6,
+    action_names: ACTION_MEANINGS[6],
+  },
+  {
+    id: 'ALE/MsPacman-v5',
+    name: 'MsPacman',
+    display_name: 'Ms. Pac-Man',
+    trained_episodes: null,
+    action_space_size: 9,
+    action_names: ACTION_MEANINGS[9],
+  },
+  {
+    id: 'ALE/Asteroids-v5',
+    name: 'Asteroids',
+    display_name: 'Asteroids',
+    trained_episodes: null,
+    action_space_size: 14,
+    action_names: ACTION_MEANINGS[14],
+  },
+  {
+    id: 'ALE/Boxing-v5',
+    name: 'Boxing',
+    display_name: 'Boxing',
+    trained_episodes: null,
+    action_space_size: 18,
+    action_names: ACTION_MEANINGS[18],
+  },
+  {
+    id: 'ALE/BeamRider-v5',
+    name: 'BeamRider',
+    display_name: 'Beam Rider',
+    trained_episodes: null,
+    action_space_size: 9,
+    action_names: ACTION_MEANINGS[9],
+  },
+  {
+    id: 'ALE/Seaquest-v5',
+    name: 'Seaquest',
+    display_name: 'Seaquest',
+    trained_episodes: null,
+    action_space_size: 18,
+    action_names: ACTION_MEANINGS[18],
+  },
+  {
+    id: 'ALE/Enduro-v5',
+    name: 'Enduro',
+    display_name: 'Enduro',
+    trained_episodes: null,
+    action_space_size: 9,
+    action_names: ACTION_MEANINGS[9],
+  },
+  {
+    id: 'ALE/Freeway-v5',
+    name: 'Freeway',
+    display_name: 'Freeway',
+    trained_episodes: null,
+    action_space_size: 3,
+    action_names: ACTION_MEANINGS[3],
+  },
 ];
 
 function AtariDashboard() {
@@ -92,6 +172,7 @@ function AtariDashboard() {
   // Modals
   const [showComparison, setShowComparison] = useState(false);
   const [showEmailModal, setShowEmailModal] = useState(false);
+  const [podcastLogoError, setPodcastLogoError] = useState(false);
   
   // Chart tabs
   const [chartTab, setChartTab] = useState(0);
@@ -129,7 +210,13 @@ function AtariDashboard() {
     // Initialize data
     socket.on(config.events.init, (data) => {
       console.log('Received init data:', data);
-      setGames((data.games && data.games.length > 0) ? data.games : DEFAULT_GAMES);
+      const gameMap = new Map(DEFAULT_GAMES.map((game) => [game.id, game]));
+      if (data.games && data.games.length > 0) {
+        data.games.forEach((game) => {
+          gameMap.set(game.id, { ...gameMap.get(game.id), ...game });
+        });
+      }
+      setGames(Array.from(gameMap.values()));
       setIsTraining(data.isTraining || false);
       setSavedModels(data.savedModels || []);
       setTrainingSpeed(data.trainingSpeed || '1x');
@@ -171,6 +258,15 @@ function AtariDashboard() {
       setCheckpointRefreshKey((prev) => prev + 1);
       addLog('Training stopped');
     });
+
+    socket.on(config.events.status, (data) => {
+      if (typeof data.isTraining === 'boolean') {
+        setIsTraining(data.isTraining);
+      }
+      if (!data.isTraining) {
+        setSessionId(null);
+      }
+    });
     
     socket.on(config.events.episodeEnd, (data) => {
       console.log('Episode ended:', data);
@@ -194,6 +290,10 @@ function AtariDashboard() {
         bestReward: data.bestReward || prev.bestReward
       }));
       addLog(`Episode ${data.episode}: reward=${data.reward?.toFixed(1)}, steps=${data.steps}`);
+
+      if (data.actionDistribution) {
+        setActionDist(data.actionDistribution);
+      }
       
       // Show email modal after first episode
       if (data.episode === 1) {
@@ -245,14 +345,15 @@ function AtariDashboard() {
   // Handle game change
   const handleGameChange = useCallback((newGame) => {
     if (isTraining) {
-      addLog('Cannot change game while training', 'warning');
-      return;
+      addLog('Stopping training to switch games...', 'warning');
+      socketService.emit(config.events.stopTraining);
     }
 
     setSelectedGame(newGame);
     setLoadCheckpoint('');
     setResumeFromSaved(false);
     resumeDefaultAppliedRef.current = false;
+    setSessionId(null);
     setStats({
       episode: 0,
       reward: 0,
@@ -301,7 +402,8 @@ function AtariDashboard() {
   const handleDownloadWeights = useCallback((gameId, checkpointName) => {
     if (!gameId) return;
     const gameKey = gameId.replace(/\//g, '_');
-    let url = `/api/models/${gameKey}/download`;
+    const baseUrl = config.API_BASE_URL || '';
+    let url = `${baseUrl}/api/models/${gameKey}/download`;
 
     if (checkpointName) {
       url += `?mode=checkpoint&checkpoint=${encodeURIComponent(checkpointName)}`;
@@ -329,6 +431,25 @@ function AtariDashboard() {
   const handleStop = useCallback(() => {
     addLog('Stopping training...');
     socketService.emit(config.events.stopTraining);
+    fetch(`${config.API_BASE_URL}/api/training/stop`, { method: 'POST' }).catch(() => {});
+    // Optimistically update UI in case backend takes time to emit stop event
+    setIsTraining(false);
+    if (window.clearCanvas) {
+      window.clearCanvas();
+    }
+    setStats({
+      episode: 0,
+      reward: 0,
+      bestReward: 0,
+      loss: 0,
+      qValue: 0,
+      fps: 0,
+      steps: 0
+    });
+    setEpisodes([]);
+    setActionDist({});
+    setRewardDist({ bins: [], counts: [] });
+    setSessionId(null);
   }, [addLog]);
   
   // Save model
@@ -387,18 +508,12 @@ function AtariDashboard() {
     [rewardDist]
   );
 
-  const handleShare = useCallback(() => {
-    const shareData = {
-      title: 'Atari RL Training Dashboard',
-      text: 'Check out my Atari RL training session.',
-      url: window?.location?.href || '',
-    };
-    if (navigator.share) {
-      navigator.share(shareData).catch(() => {});
-    } else if (navigator.clipboard && shareData.url) {
-      navigator.clipboard.writeText(shareData.url);
-    }
-  }, []);
+  // Fetch history (episodes + distributions) when session is known
+  useEffect(() => {
+    if (!sessionId) return;
+    socketService.emit(config.events.getHistory, { sessionId });
+  }, [sessionId]);
+
 
   return (
     <DashboardLayout>
@@ -422,7 +537,12 @@ function AtariDashboard() {
               justifyContent="space-between"
               gap={2}
             >
-              <MDBox display="flex" alignItems="center" gap={2}>
+              <MDBox
+                display="flex"
+                alignItems="center"
+                gap={2}
+                sx={{ flexWrap: { xs: 'wrap', md: 'nowrap' }, rowGap: 1.5 }}
+              >
                 <MDBox
                   display="flex"
                   alignItems="center"
@@ -461,55 +581,158 @@ function AtariDashboard() {
                     >
                       Rainbow DQN Dashboard
                     </MDTypography>
-                    <Tooltip title="Monitor training, metrics, and controls for Rainbow DQN agents.">
+                    <Tooltip
+                      title="Monitor training, metrics, and controls for Rainbow DQN agents."
+                      arrow
+                      componentsProps={{
+                        tooltip: {
+                          sx: {
+                            backgroundColor: 'rgba(15, 23, 42, 0.82)',
+                            border: '1px solid rgba(148, 163, 184, 0.3)',
+                            color: '#e2e8f0',
+                            fontSize: '0.75rem',
+                            boxShadow: '0 12px 24px rgba(0,0,0,0.35)',
+                          },
+                        },
+                        arrow: { sx: { color: 'rgba(15, 23, 42, 0.82)' } },
+                      }}
+                    >
                       <Icon fontSize="small" sx={{ color: 'rgba(226,232,240,0.7)' }}>
                         info
                       </Icon>
                     </Tooltip>
                   </MDBox>
                 </MDBox>
-              </MDBox>
-
-              <MDBox display="flex" alignItems="center" gap={1.5}>
+                <MDBox display="flex" alignItems="center" gap={1.5}>
+                  <MDBox
+                    component="a"
+                    href={PODCAST.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    display="inline-flex"
+                    alignItems="center"
+                    gap={1.25}
+                    sx={{
+                      textDecoration: 'none',
+                      color: 'inherit',
+                    }}
+                    aria-label={`Subscribe to ${PODCAST.name} podcast`}
+                  >
+                    <MDBox
+                      display="flex"
+                      alignItems="center"
+                      justifyContent="center"
+                      width="48px"
+                      height="48px"
+                      borderRadius="12px"
+                      sx={{
+                        backgroundColor: '#0b1224',
+                        border: '1px solid rgba(148, 163, 184, 0.35)',
+                        overflow: 'hidden',
+                        textDecoration: 'none',
+                      }}
+                    >
+                      {!podcastLogoError ? (
+                        <img
+                          src={PODCAST.logoSrc}
+                          alt={PODCAST.logoAlt}
+                          onError={() => setPodcastLogoError(true)}
+                          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                        />
+                      ) : (
+                        <MDTypography variant="caption" fontWeight="bold" sx={{ color: '#e2e8f0' }}>
+                          {PODCAST.shortName}
+                        </MDTypography>
+                    )}
+                  </MDBox>
+                  <MDBox display="flex" flexDirection="column">
+                    <MDTypography
+                      variant="h4"
+                      fontWeight="bold"
+                      sx={{
+                        background: 'linear-gradient(90deg, #0ea5e9, #8b5cf6)',
+                        WebkitBackgroundClip: 'text',
+                        WebkitTextFillColor: 'transparent',
+                        lineHeight: 1.05,
+                      }}
+                    >
+                      Major Programmes
+                    </MDTypography>
+                    <MDTypography
+                      variant="h4"
+                      fontWeight="bold"
+                      sx={{
+                        background: 'linear-gradient(90deg, #0ea5e9, #8b5cf6)',
+                        WebkitBackgroundClip: 'text',
+                        WebkitTextFillColor: 'transparent',
+                        lineHeight: 1.05,
+                      }}
+                    >
+                      Navigating
+                    </MDTypography>
+                  </MDBox>
+                </MDBox>
                 <MDButton
-                  variant="outlined"
+                  component="a"
+                  href={PODCAST.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  variant="contained"
                   color="info"
                   size="small"
-                  onClick={handleShare}
-                  startIcon={<Icon sx={{ fontSize: '1.1rem !important' }}>share</Icon>}
-                  sx={{ textTransform: 'none' }}
+                  sx={{
+                    textTransform: 'none',
+                    borderRadius: '12px',
+                    width: '120px',
+                    height: '48px',
+                    minWidth: '120px',
+                    minHeight: '48px',
+                    p: 0,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    background: 'linear-gradient(180deg, #0ea5e9 0%, #8b5cf6 100%)',
+                    color: '#fff',
+                    border: '1px solid rgba(14, 165, 233, 0.35)',
+                    boxShadow: '0 10px 20px rgba(14, 165, 233, 0.25)',
+                    '&:hover': {
+                      background: 'linear-gradient(180deg, #22d3ee 0%, #6366f1 100%)',
+                    },
+                  }}
                 >
-                  Share
+                  Subscribe
                 </MDButton>
-                <MDBox display="flex" alignItems="center" gap={2}>
-                  <MDBox
-                    display="flex"
-                    alignItems="center"
-                    gap={1}
-                    px={2}
-                    py={1}
-                    borderRadius="24px"
-                    sx={{
-                      backgroundColor: isConnected ? 'rgba(22, 163, 74, 0.18)' : 'rgba(239, 68, 68, 0.18)',
-                      border: `1px solid ${isConnected ? 'rgba(34, 197, 94, 0.45)' : 'rgba(248, 113, 113, 0.45)'}`,
-                      color: isConnected ? '#34d399' : '#f87171',
-                      minWidth: '160px',
-                      justifyContent: 'center',
-                    }}
-                  >
-                    <span style={{ fontSize: '0.9rem' }}>●</span>
-                    <MDTypography variant="button" fontWeight="medium">
-                      {isConnected ? 'Connected' : 'Disconnected'}
-                    </MDTypography>
-                  </MDBox>
-                  <MDBox display="flex" alignItems="center" gap={1} color="text">
-                    <Icon sx={{ fontSize: '1.1rem !important', color: 'rgba(226,232,240,0.7)' }}>
-                      desktop_windows
-                    </Icon>
-                    <MDTypography variant="button" color="text">
-                      cpu
-                    </MDTypography>
-                  </MDBox>
+                </MDBox>
+              </MDBox>
+
+              <MDBox display="flex" alignItems="center" gap={2}>
+                <MDBox
+                  display="flex"
+                  alignItems="center"
+                  gap={1}
+                  px={2}
+                  py={1}
+                  borderRadius="24px"
+                  sx={{
+                    backgroundColor: isConnected ? 'rgba(22, 163, 74, 0.18)' : 'rgba(239, 68, 68, 0.18)',
+                    border: `1px solid ${isConnected ? 'rgba(34, 197, 94, 0.45)' : 'rgba(248, 113, 113, 0.45)'}`,
+                    color: isConnected ? '#34d399' : '#f87171',
+                    minWidth: '160px',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <span style={{ fontSize: '0.9rem' }}>●</span>
+                  <MDTypography variant="button" fontWeight="medium">
+                    {isConnected ? 'Connected' : 'Disconnected'}
+                  </MDTypography>
+                </MDBox>
+                <MDBox display="flex" alignItems="center" gap={1} color="text">
+                  <Icon sx={{ fontSize: '1.1rem !important', color: 'rgba(226,232,240,0.7)' }}>
+                    desktop_windows
+                  </Icon>
+                  <MDTypography variant="button" color="text">
+                    cpu
+                  </MDTypography>
                 </MDBox>
               </MDBox>
             </MDBox>
@@ -574,7 +797,7 @@ function AtariDashboard() {
                 <MDBox display="flex" alignItems="center" justifyContent="space-between" mb={2}>
                   <MDBox display="flex" alignItems="center" gap={1.5}>
                     <Icon sx={{ color: '#0ea5e9' }}>stacked_line_chart</Icon>
-                    <MDTypography variant="h5" fontWeight="medium">
+                    <MDTypography variant="h6" fontWeight="medium">
                       Metrics
                     </MDTypography>
                   </MDBox>
@@ -582,131 +805,23 @@ function AtariDashboard() {
 
                 <Grid container spacing={2}>
                   <Grid item xs={12} md={6}>
-                    <Card sx={{ height: '100%' }}>
-                      <MDBox p={2}>
-                        <MDBox display="flex" alignItems="center" justifyContent="space-between" mb={1.5}>
-                          <MDTypography variant="subtitle2" fontWeight="medium" sx={{ fontSize: '0.95rem' }}>
-                            Episode Reward Trend
-                          </MDTypography>
-                          <Tooltip title="Shows how rewards evolve per episode. Upward trends indicate learning progress.">
-                            <Icon sx={{ color: '#0ea5e9', fontSize: '1rem !important' }}>emoji_events</Icon>
-                          </Tooltip>
-                        </MDBox>
-                        {hasEpisodes ? (
-                          <RewardChart episodes={episodes} />
-                        ) : (
-                          <MDBox
-                            sx={{
-                              border: '1px dashed rgba(148, 163, 184, 0.4)',
-                              borderRadius: '10px',
-                              p: 2,
-                              textAlign: 'center',
-                              color: 'text.secondary',
-                              fontSize: '0.9rem',
-                            }}
-                          >
-                            Chart placeholder: start training to see reward trends.
-                          </MDBox>
-                        )}
-                      </MDBox>
-                    </Card>
+                    <RewardChart episodes={episodes} />
                   </Grid>
 
                   <Grid item xs={12} md={6}>
-                    <Card sx={{ height: '100%' }}>
-                      <MDBox p={2}>
-                        <MDBox display="flex" alignItems="center" justifyContent="space-between" mb={1.5}>
-                          <MDTypography variant="subtitle2" fontWeight="medium" sx={{ fontSize: '0.95rem' }}>
-                            Training Loss
-                          </MDTypography>
-                          <Tooltip title="Tracks prediction error per episode. Lower loss typically means better policy updates.">
-                            <Icon sx={{ color: '#ef4444', fontSize: '1rem !important' }}>trending_down</Icon>
-                          </Tooltip>
-                        </MDBox>
-                        {hasEpisodes ? (
-                          <LossChart episodes={episodes} />
-                        ) : (
-                          <MDBox
-                            sx={{
-                              border: '1px dashed rgba(148, 163, 184, 0.4)',
-                              borderRadius: '10px',
-                              p: 2,
-                              textAlign: 'center',
-                              color: 'text.secondary',
-                              fontSize: '0.9rem',
-                            }}
-                          >
-                            Chart placeholder: start training to see loss trends.
-                          </MDBox>
-                        )}
-                      </MDBox>
-                    </Card>
+                    <LossChart episodes={episodes} />
                   </Grid>
 
                   <Grid item xs={12} md={6}>
-                    <Card sx={{ height: '100%' }}>
-                      <MDBox p={2}>
-                        <MDBox display="flex" alignItems="center" justifyContent="space-between" mb={1.5}>
-                          <MDTypography variant="subtitle2" fontWeight="medium" sx={{ fontSize: '0.95rem' }}>
-                            Q-Values (Mean & Max)
-                          </MDTypography>
-                          <Tooltip title="Mean and max Q-values show action-value confidence. Healthy growth signals better policies.">
-                            <Icon sx={{ color: '#06b6d4', fontSize: '1rem !important' }}>psychology</Icon>
-                          </Tooltip>
-                        </MDBox>
-                        {hasEpisodes ? (
-                          <QValueChart episodes={episodes} />
-                        ) : (
-                          <MDBox
-                            sx={{
-                              border: '1px dashed rgba(148, 163, 184, 0.4)',
-                              borderRadius: '10px',
-                              p: 2,
-                              textAlign: 'center',
-                              color: 'text.secondary',
-                              fontSize: '0.9rem',
-                            }}
-                          >
-                            Chart placeholder: start training to see Q-value trends.
-                          </MDBox>
-                        )}
-                      </MDBox>
-                    </Card>
+                    <QValueChart episodes={episodes} />
                   </Grid>
 
                   <Grid item xs={12} md={6}>
-                    <Card sx={{ height: '100%' }}>
-                      <MDBox p={2}>
-                        <MDBox display="flex" alignItems="center" justifyContent="space-between" mb={1.5}>
-                          <MDTypography variant="subtitle2" fontWeight="medium" sx={{ fontSize: '0.95rem' }}>
-                            Action Distribution
-                          </MDTypography>
-                          <Tooltip title="Shows how often each action is taken. Balanced distributions indicate exploration; skewed ones show exploitation.">
-                            <Icon sx={{ color: '#8b5cf6', fontSize: '1rem !important' }}>donut_large</Icon>
-                          </Tooltip>
-                        </MDBox>
-                        {hasActionDist ? (
-                          <ActionChart 
-                            actionDist={actionDist} 
-                            numActions={numActions}
-                            actionNames={actionNames}
-                          />
-                        ) : (
-                          <MDBox
-                            sx={{
-                              border: '1px dashed rgba(148, 163, 184, 0.4)',
-                              borderRadius: '10px',
-                              p: 2,
-                              textAlign: 'center',
-                              color: 'text.secondary',
-                              fontSize: '0.9rem',
-                            }}
-                          >
-                            Chart placeholder: start training to populate action distribution.
-                          </MDBox>
-                        )}
-                      </MDBox>
-                    </Card>
+                    <ActionChart 
+                      actionDist={actionDist} 
+                      numActions={numActions}
+                      actionNames={actionNames}
+                    />
                   </Grid>
                 </Grid>
               </MDBox>
@@ -758,7 +873,7 @@ function AtariDashboard() {
               onClick={() => setLogExpanded(!logExpanded)}
             >
               <MDBox display="flex" alignItems="center" gap={1}>
-                <Icon color="info">terminal</Icon>
+                <Icon sx={{ color: '#0ea5e9' }}>terminal</Icon>
                 <MDTypography variant="h6" fontWeight="medium">
                   Activity Log
                 </MDTypography>
@@ -817,7 +932,7 @@ function AtariDashboard() {
                     sx={{
                       color: log.type === 'error' ? 'error.main' : 
                              log.type === 'success' ? 'success.main' :
-                             log.type === 'warning' ? 'warning.main' : 'text.secondary',
+                             log.type === 'warning' ? 'warning.main' : 'rgba(226, 232, 240, 0.8)',
                       fontFamily: 'monospace',
                       fontSize: '0.75rem',
                       lineHeight: 1.5,

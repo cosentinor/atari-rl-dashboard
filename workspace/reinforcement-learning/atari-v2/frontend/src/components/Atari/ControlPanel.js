@@ -59,15 +59,6 @@ function ControlPanel({
     { value: '4x', label: '4x' },
   ];
 
-  const selectedGameInfo = selectedGame
-    ? games.find((game) => game.id === selectedGame)
-    : null;
-  const trainedEpisodes = selectedGameInfo?.trained_episodes;
-  const trainedEpisodesLabel =
-    typeof trainedEpisodes === 'number' && trainedEpisodes > 0
-      ? trainedEpisodes.toLocaleString()
-      : 'n/a';
-
   const cardSx = {
     background: 'linear-gradient(145deg, #0f1628 0%, #0b1224 100%)',
     borderRadius: '16px',
@@ -188,6 +179,15 @@ function ControlPanel({
     },
   };
 
+  const selectedGameInfo = selectedGame
+    ? games.find((game) => game.id === selectedGame)
+    : null;
+  const trainedEpisodes = selectedGameInfo?.trained_episodes;
+  const trainedEpisodesLabel =
+    typeof trainedEpisodes === 'number' && trainedEpisodes > 0
+      ? trainedEpisodes.toLocaleString()
+      : 'n/a';
+
   const formatCheckpointLabel = (checkpoint) => {
     if (!checkpoint) return '';
     const rewardValue =
@@ -200,7 +200,7 @@ function ControlPanel({
     <Card sx={cardSx}>
       <MDBox p={{ xs: 2, sm: 2.5 }} sx={{ position: 'relative', zIndex: 1 }}>
         <MDTypography variant="h6" fontWeight="medium" sx={{ color: '#f8fafc', mb: 1.5 }} display="flex" alignItems="center" gap={0.75}>
-          <span role="img" aria-label="controls">🕹️</span>
+          <Icon sx={{ fontSize: '1.3rem !important', color: '#0ea5e9' }}>tune</Icon>
           Training Controls
         </MDTypography>
 
