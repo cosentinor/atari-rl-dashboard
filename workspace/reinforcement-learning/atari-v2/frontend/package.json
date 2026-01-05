@@ -1,0 +1,92 @@
+{
+  "name": "material-dashboard-3-pro-react",
+  "version": "2.4.0",
+  "private": true,
+  "author": "Creative Tim",
+  "license": "See license in https://www.creative-tim.com/license",
+  "description": "React version of Material Dashboard 3 PRO by Creative Tim",
+  "bugs": {
+    "url": "https://github.com/creativetimofficial/ct-material-dashboard-pro-react/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/creativetimofficial/ct-material-dashboard-pro-react.git"
+  },
+  "dependencies": {
+    "@asseinfo/react-kanban": "2.2.0",
+    "@emotion/cache": "11.13.1",
+    "@emotion/react": "11.13.3",
+    "@emotion/styled": "11.13.0",
+    "@fullcalendar/core": "6.1.15",
+    "@fullcalendar/daygrid": "6.1.15",
+    "@fullcalendar/interaction": "6.1.15",
+    "@fullcalendar/react": "6.1.15",
+    "@fullcalendar/timegrid": "6.1.15",
+    "@mui/icons-material": "5.16.7",
+    "@mui/material": "5.16.7",
+    "@react-jvectormap/core": "1.0.4",
+    "@react-jvectormap/world": "1.1.2",
+    "ajv": "8.17.1",
+    "chart.js": "4.4.6",
+    "chroma-js": "3.1.2",
+    "draft-convert": "2.1.13",
+    "draft-js": "0.11.7",
+    "dropzone": "6.0.0-beta.2",
+    "flatpickr": "4.6.13",
+    "formik": "2.4.6",
+    "html-react-parser": "5.1.18",
+    "prop-types": "15.8.1",
+    "react": "18.3.1",
+    "react-chartjs-2": "5.2.0",
+    "react-dom": "18.3.1",
+    "react-draft-wysiwyg": "1.15.0",
+    "react-flatpickr": "3.10.13",
+    "react-github-btn": "1.4.0",
+    "react-images-viewer": "1.7.1",
+    "react-router-dom": "6.27.0",
+    "react-scripts": "5.0.1",
+    "react-table": "7.8.0",
+    "socket.io-client": "^4.8.3",
+    "stylis": "4.3.4",
+    "stylis-plugin-rtl": "2.1.1",
+    "uuid": "11.0.2",
+    "yup": "1.4.0"
+  },
+  "scripts": {
+    "start": "DISABLE_ESLINT_PLUGIN=true GENERATE_SOURCEMAP=false react-scripts start",
+    "build": "GENERATE_SOURCEMAP=false react-scripts build",
+    "test": "react-scripts test",
+    "eject": "react-scripts eject",
+    "install:clean": "rm -rf node_modules/ && rm -rf package-lock.json && npm install && npm start",
+    "lint": "eslint \"src/**/*.{js,jsx}\" --fix --quiet"
+  },
+  "eslintConfig": {
+    "extends": [
+      "react-app",
+      "react-app/jest"
+    ]
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
+  },
+  "devDependencies": {
+    "@babel/plugin-proposal-private-property-in-object": "7.21.11",
+    "eslint": "9.14.0",
+    "eslint-plugin-import": "2.31.0",
+    "eslint-plugin-jsx-a11y": "6.10.2",
+    "eslint-plugin-react": "7.37.2",
+    "eslint-plugin-react-hooks": "5.0.0"
+  },
+  "overrides": {
+    "svgo": "3.0.2"
+  }
+}
