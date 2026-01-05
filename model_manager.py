@@ -267,6 +267,23 @@ class ModelManager:
             except Exception as e2:
                 logger.error(f"Checkpoint save failed after cleanup: {e2}")
                 return False
+
+    def _find_latest_checkpoint(self, game_dir: Path) -> tuple[Optional[str], int]:
+        """Find the latest checkpoint filename and episode in a game directory."""
+        latest_ep = -1
+        latest_name = None
+        latest_mtime = -1.0
+        for path in game_dir.glob("checkpoint_ep*.pt"):
+            match = re.search(r"checkpoint_ep(\d+)_", path.name)
+            if not match:
+                continue
+            ep = int(match.group(1))
+            mtime = path.stat().st_mtime
+            if ep > latest_ep or (ep == latest_ep and mtime > latest_mtime):
+                latest_ep = ep
+                latest_name = path.name
+                latest_mtime = mtime
+        return latest_name, latest_ep
     
     def load_checkpoint(
         self,
@@ -321,6 +338,39 @@ class ModelManager:
         result.sort(key=lambda x: x["episode"], reverse=True)
         
         return result
+
+    def get_latest_checkpoint_name(self, game_id: str) -> Optional[str]:
+        """Get the latest checkpoint filename for a game (highest episode)."""
+        game_dir = self.get_game_dir(game_id)
+        latest_name, _ = self._find_latest_checkpoint(game_dir)
+        return latest_name
+
+    def get_latest_checkpoint_path(self, game_id: str) -> Optional[str]:
+        """Get the full path to the latest checkpoint for a game."""
+        game_dir = self.get_game_dir(game_id)
+        latest_name, _ = self._find_latest_checkpoint(game_dir)
+        if latest_name:
+            return str(game_dir / latest_name)
+        return None
+
+    def has_checkpoints(self, game_id: str) -> bool:
+        """Check if any checkpoints exist for a game."""
+        game_dir = self.get_game_dir(game_id)
+        if (game_dir / "best_model.pt").exists():
+            return True
+        return any(game_dir.glob("checkpoint_ep*.pt"))
+
+    def resolve_checkpoint_path(self, game_id: str, checkpoint_name: str) -> Optional[str]:
+        """Resolve a checkpoint filename to a safe on-disk path."""
+        if not checkpoint_name:
+            return None
+        game_dir = self.get_game_dir(game_id)
+        candidate = (game_dir / checkpoint_name).resolve()
+        if not candidate.exists():
+            return None
+        if game_dir.resolve() not in candidate.parents:
+            return None
+        return str(candidate)
     
     def get_all_games(self) -> List[Dict]:
         """Get list of all games with saved models."""

@@ -9,66 +9,77 @@ AUTOSAVE_INTERVAL_SECONDS = 90  # Save checkpoint every 90 seconds
 AUTOSAVE_INTERVAL_EPISODES = 100  # Also save every N episodes (backup)
 
 # ============== Game Presets ==============
-# Recommended training episodes and difficulty ratings
+# Recommended training episodes and difficulty ratings.
+# trained_episodes reflects the latest Thunder Compute run synced on 2026-01-04.
 
 GAME_PRESETS = {
     "Pong": {
         "env_id": "ALE/Pong-v5",
         "recommended_episodes": 10000,
+        "trained_episodes": 10000,
         "difficulty": "easy",
         "description": "Simple paddle game - stable baseline for longer runs"
     },
     "Freeway": {
         "env_id": "ALE/Freeway-v5",
         "recommended_episodes": 10000,
+        "trained_episodes": 10000,
         "difficulty": "easy",
         "description": "Cross the road - simple reward structure, longer run for consistency"
     },
     "Breakout": {
         "env_id": "ALE/Breakout-v5",
         "recommended_episodes": 10000,
+        "trained_episodes": 10001,
         "difficulty": "medium",
         "description": "Classic brick breaker"
     },
     "Boxing": {
         "env_id": "ALE/Boxing-v5",
         "recommended_episodes": 10000,
+        "trained_episodes": 10000,
         "difficulty": "medium",
         "description": "Two-player boxing"
     },
     "SpaceInvaders": {
         "env_id": "ALE/SpaceInvaders-v5",
         "recommended_episodes": 15000,
+        "trained_episodes": 15000,
         "difficulty": "medium",
         "description": "Shoot the aliens"
     },
     "Enduro": {
         "env_id": "ALE/Enduro-v5",
         "recommended_episodes": 15000,
+        "trained_episodes": 15073,
         "difficulty": "medium",
         "description": "Racing endurance game"
     },
     "BeamRider": {
         "env_id": "ALE/BeamRider-v5",
         "recommended_episodes": 20000,
+        "trained_episodes": 20000,
         "difficulty": "hard",
         "description": "Space shooter on rails"
     },
     "Seaquest": {
         "env_id": "ALE/Seaquest-v5",
         "recommended_episodes": 25000,
+        "trained_episodes": 25000,
         "difficulty": "hard",
         "description": "Underwater rescue mission"
     },
     "Asteroids": {
         "env_id": "ALE/Asteroids-v5",
         "recommended_episodes": 25000,
+        "trained_episodes": 25000,
         "difficulty": "hard",
         "description": "360-degree space shooter"
     },
     "MsPacman": {
         "env_id": "ALE/MsPacman-v5",
         "recommended_episodes": 30000,
+        "trained_episodes": 30000,
         "difficulty": "very_hard",
         "description": "Maze navigation with ghosts"
     }

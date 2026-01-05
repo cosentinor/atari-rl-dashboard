@@ -7,7 +7,7 @@ import logging
 import os
 import threading
 import time
-from flask import Flask, send_from_directory, jsonify, request
+from flask import Flask, send_from_directory, jsonify, request, send_file
 from flask_socketio import SocketIO, emit
 from flask_cors import CORS
 
@@ -203,6 +203,36 @@ def get_game_models(game_id):
         'success': True,
         'checkpoints': model_manager.get_available_checkpoints(game_id)
     })
+
+
+@app.route('/api/models/<game_id>/download')
+def download_model(game_id):
+    """Download a model checkpoint for a specific game."""
+    game_id = game_id.replace('_', '/')
+    mode = (request.args.get('mode') or 'latest').strip().lower()
+    checkpoint_name = request.args.get('checkpoint')
+
+    try:
+        model_path = None
+        if mode == 'checkpoint':
+            if not checkpoint_name:
+                return jsonify({'success': False, 'message': 'Missing checkpoint name'}), 400
+            model_path = model_manager.resolve_checkpoint_path(game_id, checkpoint_name)
+        elif mode == 'best':
+            model_path = model_manager.get_best_model_path(game_id)
+        else:
+            model_path = model_manager.get_latest_checkpoint_path(game_id)
+            if not model_path:
+                model_path = model_manager.get_best_model_path(game_id)
+
+        if not model_path:
+            return jsonify({'success': False, 'message': 'No checkpoint available'}), 404
+
+        filename = os.path.basename(model_path)
+        return send_file(model_path, as_attachment=True, download_name=filename)
+    except Exception as e:
+        logger.error(f"Failed to download model: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
 
 
 @app.route('/api/leaderboard')
@@ -456,6 +486,13 @@ def handle_start_training(data):
     
     raw_game_id = data.get('game')
     load_checkpoint = data.get('loadCheckpoint')  # Optional checkpoint to load
+    resume_from_saved = data.get('resumeFromSaved')
+
+    if isinstance(load_checkpoint, str) and load_checkpoint.strip() == "":
+        load_checkpoint = None
+
+    if isinstance(resume_from_saved, str):
+        resume_from_saved = resume_from_saved.strip().lower() in {"1", "true", "yes", "on"}
     
     if not raw_game_id:
         emit('error', {'message': 'No game specified'})
@@ -519,17 +556,29 @@ def handle_start_training(data):
             store_uint8=store_uint8
         )
         
-        # Load checkpoint if specified
-        if load_checkpoint:
+        # Decide whether to resume from saved weights
+        if resume_from_saved is None:
+            resume_from_saved = model_manager.has_checkpoints(game_id)
+
+        # Load checkpoint if specified or if resume is enabled
+        if resume_from_saved:
+            checkpoint_to_load = load_checkpoint or model_manager.get_latest_checkpoint_name(game_id)
             try:
-                checkpoint = model_manager.load_checkpoint(
-                    rainbow_agent, game_id, load_checkpoint
-                )
-                logger.info(f"Loaded checkpoint: {load_checkpoint}")
-                emit('log', {'message': f'Loaded checkpoint: {load_checkpoint}', 'type': 'success'})
+                if checkpoint_to_load:
+                    model_manager.load_checkpoint(rainbow_agent, game_id, checkpoint_to_load)
+                    logger.info(f"Loaded checkpoint: {checkpoint_to_load}")
+                    emit('log', {'message': f'Loaded checkpoint: {checkpoint_to_load}', 'type': 'success'})
+                else:
+                    best_path = model_manager.get_best_model_path(game_id)
+                    if best_path:
+                        model_manager.load_checkpoint(rainbow_agent, game_id, None)
+                        logger.info("Loaded checkpoint: best_model.pt")
+                        emit('log', {'message': 'Loaded checkpoint: best_model.pt', 'type': 'success'})
+                    else:
+                        emit('log', {'message': 'Starting fresh (no checkpoints found)', 'type': 'info'})
             except Exception as e:
                 logger.warning(f"Failed to load checkpoint: {e}")
-                emit('log', {'message': f'Starting fresh (checkpoint load failed)', 'type': 'warning'})
+                emit('log', {'message': 'Starting fresh (checkpoint load failed)', 'type': 'warning'})
         
         # Create streamer
         streamer = FrameStreamer(env, socketio, target_fps=viz_target_fps)
@@ -918,7 +967,7 @@ def run_training_loop():
                 if current_time - last_autosave_time >= AUTOSAVE_INTERVAL_SECONDS:
                     if local_agent and local_game:
                         try:
-                            model_manager.save_checkpoint(
+                            path = model_manager.save_checkpoint(
                                 local_agent,
                                 local_game,
                                 episode,
@@ -926,6 +975,8 @@ def run_training_loop():
                             )
                             last_autosave_time = current_time
                             logger.info(f"Time-based autosave at episode {episode}, step {step}")
+                            if path:
+                                socketio.emit('model_saved', {'path': path, 'episode': episode})
                             socketio.emit('log', {
                                 'message': f'Autosaved at episode {episode}',
                                 'type': 'info'

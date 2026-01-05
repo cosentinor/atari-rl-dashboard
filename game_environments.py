@@ -7,6 +7,8 @@ import logging
 from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
 
+from config import GAME_PRESETS
+
 logger = logging.getLogger(__name__)
 
 
@@ -175,6 +177,7 @@ class GameEnvironments:
                 'name': g.name,
                 'display_name': g.display_name,
                 'description': g.description,
+                'trained_episodes': GAME_PRESETS.get(g.name, {}).get('trained_episodes'),
                 'action_space_size': g.action_space_size,
                 'action_names': g.action_names if g.action_names else [],
                 'observation_shape': list(g.observation_shape),
@@ -246,4 +249,3 @@ class GameEnvironments:
             logger.error(f"Missing required wrapper: {e}")
             # Return basic environment if wrappers aren't available
             return self.create_environment(game_id)
-

@@ -8,6 +8,7 @@ import Card from '@mui/material/Card';
 import Icon from '@mui/material/Icon';
 import Select from '@mui/material/Select';
 import MenuItem from '@mui/material/MenuItem';
+import Switch from '@mui/material/Switch';
 import MDBox from "components/MDBox";
 import MDTypography from "components/MDTypography";
 import MDButton from "components/MDButton";
@@ -22,6 +23,11 @@ function ControlPanel({
   onSave,
   loadCheckpoint,
   setLoadCheckpoint,
+  resumeFromSaved,
+  onResumeFromSavedChange,
+  onDownloadWeights,
+  checkpointRefreshKey,
+  onCheckpointsLoaded,
   trainingSpeed,
   onTrainingSpeedChange,
 }) {
@@ -35,20 +41,32 @@ function ControlPanel({
         .then(r => r.json())
         .then(data => {
           if (data.success) {
-            setCheckpoints(data.checkpoints || []);
+            const next = data.checkpoints || [];
+            setCheckpoints(next);
+            if (onCheckpointsLoaded) onCheckpointsLoaded(next);
           }
         })
         .catch(console.error);
     } else {
       setCheckpoints([]);
+      if (onCheckpointsLoaded) onCheckpointsLoaded([]);
     }
-  }, [selectedGame]);
+  }, [selectedGame, checkpointRefreshKey, onCheckpointsLoaded]);
 
   const speedOptions = [
     { value: '1x', label: '1x' },
     { value: '2x', label: '2x' },
     { value: '4x', label: '4x' },
   ];
+
+  const selectedGameInfo = selectedGame
+    ? games.find((game) => game.id === selectedGame)
+    : null;
+  const trainedEpisodes = selectedGameInfo?.trained_episodes;
+  const trainedEpisodesLabel =
+    typeof trainedEpisodes === 'number' && trainedEpisodes > 0
+      ? trainedEpisodes.toLocaleString()
+      : 'n/a';
 
   const cardSx = {
     background: 'linear-gradient(145deg, #0f1628 0%, #0b1224 100%)',
@@ -213,7 +231,32 @@ function ControlPanel({
             </Select>
           </MDBox>
 
-          {selectedGame && checkpoints.length > 0 && (
+          {selectedGame && (
+            <MDBox>
+              <MDTypography variant="caption" sx={{ color: 'rgba(226, 232, 240, 0.6)' }}>
+                Trained episodes (Thunder Compute): {trainedEpisodesLabel}
+              </MDTypography>
+            </MDBox>
+          )}
+
+          {selectedGame && (
+            <MDBox>
+              <MDBox display="flex" alignItems="center" justifyContent="space-between" gap={1}>
+                <MDTypography sx={sectionLabelSx}>Start From Saved Weights</MDTypography>
+                <Switch
+                  checked={Boolean(resumeFromSaved)}
+                  onChange={(e) => onResumeFromSavedChange?.(e.target.checked)}
+                  disabled={isTraining || checkpoints.length === 0}
+                  color="info"
+                />
+              </MDBox>
+              <MDTypography variant="caption" sx={{ color: 'rgba(226, 232, 240, 0.55)' }}>
+                Uses the latest checkpoint unless you pick one below.
+              </MDTypography>
+            </MDBox>
+          )}
+
+          {selectedGame && checkpoints.length > 0 && resumeFromSaved && (
             <MDBox>
               <MDTypography sx={sectionLabelSx}>Resume From</MDTypography>
               <Select
@@ -226,19 +269,42 @@ function ControlPanel({
                 MenuProps={menuProps}
                 renderValue={(selected) => {
                   if (!selected) {
-                    return <span style={{ color: 'rgba(226, 232, 240, 0.6)' }}>Start fresh</span>;
+                    return <span style={{ color: 'rgba(226, 232, 240, 0.6)' }}>Latest saved weights</span>;
                   }
                   const checkpoint = checkpoints.find((cp) => cp.filename === selected);
                   return formatCheckpointLabel(checkpoint) || selected;
                 }}
               >
-                <MenuItem value="">Start fresh</MenuItem>
+                <MenuItem value="">Latest saved weights</MenuItem>
                 {checkpoints.map((cp) => (
                   <MenuItem key={cp.filename} value={cp.filename}>
                     {formatCheckpointLabel(cp)}
                   </MenuItem>
                 ))}
               </Select>
+            </MDBox>
+          )}
+
+          {selectedGame && checkpoints.length > 0 && (
+            <MDBox>
+              <MDButton
+                variant="outlined"
+                size="small"
+                onClick={() => onDownloadWeights?.(selectedGame, loadCheckpoint)}
+                disabled={!onDownloadWeights}
+                sx={{
+                  borderColor: 'rgba(56, 189, 248, 0.6)',
+                  color: '#e2e8f0',
+                  textTransform: 'none',
+                  '&:hover': {
+                    borderColor: 'rgba(56, 189, 248, 0.9)',
+                    backgroundColor: 'rgba(14, 165, 233, 0.12)',
+                  },
+                }}
+              >
+                <Icon sx={{ mr: 0.5 }}>download</Icon>
+                Download Weights
+              </MDButton>
             </MDBox>
           )}
 
@@ -274,7 +340,7 @@ function ControlPanel({
               }}
             >
               <Icon>play_arrow</Icon>
-              {loadCheckpoint ? 'Resume' : 'Start'}
+              {resumeFromSaved ? 'Resume' : 'Start'}
             </MDButton>
 
             <MDButton

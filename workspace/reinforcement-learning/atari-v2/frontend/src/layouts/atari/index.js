@@ -3,7 +3,7 @@
  * Full-featured layout with all components
  */
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import Grid from "@mui/material/Grid";
 import Card from "@mui/material/Card";
 import Icon from "@mui/material/Icon";
@@ -42,16 +42,16 @@ import analyticsService from "services/analytics.service";
 import config from "config";
 
 const DEFAULT_GAMES = [
-  { id: 'Pong', name: 'Pong', display_name: 'Pong' },
-  { id: 'Breakout', name: 'Breakout', display_name: 'Breakout' },
-  { id: 'SpaceInvaders', name: 'SpaceInvaders', display_name: 'Space Invaders' },
-  { id: 'MsPacman', name: 'MsPacman', display_name: 'Ms. Pac-Man' },
-  { id: 'Asteroids', name: 'Asteroids', display_name: 'Asteroids' },
-  { id: 'Boxing', name: 'Boxing', display_name: 'Boxing' },
-  { id: 'BeamRider', name: 'BeamRider', display_name: 'Beam Rider' },
-  { id: 'Seaquest', name: 'Seaquest', display_name: 'Seaquest' },
-  { id: 'Enduro', name: 'Enduro', display_name: 'Enduro' },
-  { id: 'Freeway', name: 'Freeway', display_name: 'Freeway' },
+  { id: 'Pong', name: 'Pong', display_name: 'Pong', trained_episodes: null },
+  { id: 'Breakout', name: 'Breakout', display_name: 'Breakout', trained_episodes: null },
+  { id: 'SpaceInvaders', name: 'SpaceInvaders', display_name: 'Space Invaders', trained_episodes: null },
+  { id: 'MsPacman', name: 'MsPacman', display_name: 'Ms. Pac-Man', trained_episodes: null },
+  { id: 'Asteroids', name: 'Asteroids', display_name: 'Asteroids', trained_episodes: null },
+  { id: 'Boxing', name: 'Boxing', display_name: 'Boxing', trained_episodes: null },
+  { id: 'BeamRider', name: 'BeamRider', display_name: 'Beam Rider', trained_episodes: null },
+  { id: 'Seaquest', name: 'Seaquest', display_name: 'Seaquest', trained_episodes: null },
+  { id: 'Enduro', name: 'Enduro', display_name: 'Enduro', trained_episodes: null },
+  { id: 'Freeway', name: 'Freeway', display_name: 'Freeway', trained_episodes: null },
 ];
 
 function AtariDashboard() {
@@ -62,7 +62,10 @@ function AtariDashboard() {
   const [sessionId, setSessionId] = useState(null);
   const [savedModels, setSavedModels] = useState([]);
   const [loadCheckpoint, setLoadCheckpoint] = useState('');
+  const [resumeFromSaved, setResumeFromSaved] = useState(false);
+  const [checkpointRefreshKey, setCheckpointRefreshKey] = useState(0);
   const [trainingSpeed, setTrainingSpeed] = useState('1x');
+  const resumeDefaultAppliedRef = useRef(false);
   
   // Stats
   const [stats, setStats] = useState({
@@ -165,6 +168,7 @@ function AtariDashboard() {
     socket.on(config.events.trainingStopped, () => {
       console.log('Training stopped');
       setIsTraining(false);
+      setCheckpointRefreshKey((prev) => prev + 1);
       addLog('Training stopped');
     });
     
@@ -203,6 +207,7 @@ function AtariDashboard() {
     // Model events
     socket.on(config.events.modelSaved, (data) => {
       addLog(`Model saved at episode ${data.episode}`, 'success');
+      setCheckpointRefreshKey((prev) => prev + 1);
     });
     
     socket.on(config.events.modelLoaded, (data) => {
@@ -243,9 +248,11 @@ function AtariDashboard() {
       addLog('Cannot change game while training', 'warning');
       return;
     }
-    
+
     setSelectedGame(newGame);
     setLoadCheckpoint('');
+    setResumeFromSaved(false);
+    resumeDefaultAppliedRef.current = false;
     setStats({
       episode: 0,
       reward: 0,
@@ -275,6 +282,35 @@ function AtariDashboard() {
     
     addLog(`Selected game: ${newGame}`);
   }, [isTraining, addLog, games]);
+
+  const handleCheckpointsLoaded = useCallback((checkpointList) => {
+    const hasAny = Array.isArray(checkpointList) && checkpointList.length > 0;
+    if (!resumeDefaultAppliedRef.current) {
+      setResumeFromSaved(hasAny);
+      resumeDefaultAppliedRef.current = true;
+    }
+  }, []);
+
+  const handleResumeFromSavedChange = useCallback((nextValue) => {
+    setResumeFromSaved(nextValue);
+    if (!nextValue) {
+      setLoadCheckpoint('');
+    }
+  }, []);
+
+  const handleDownloadWeights = useCallback((gameId, checkpointName) => {
+    if (!gameId) return;
+    const gameKey = gameId.replace(/\//g, '_');
+    let url = `/api/models/${gameKey}/download`;
+
+    if (checkpointName) {
+      url += `?mode=checkpoint&checkpoint=${encodeURIComponent(checkpointName)}`;
+    } else {
+      url += '?mode=latest';
+    }
+
+    window.open(url, '_blank', 'noopener,noreferrer');
+  }, []);
   
   // Start training
   const handleStart = useCallback(() => {
@@ -283,10 +319,11 @@ function AtariDashboard() {
       analyticsService.trackTrainingStart(selectedGame);
       socketService.emit(config.events.startTraining, {
         game: selectedGame,
-        loadCheckpoint: loadCheckpoint || null
+        loadCheckpoint: resumeFromSaved ? (loadCheckpoint || null) : null,
+        resumeFromSaved
       });
     }
-  }, [selectedGame, loadCheckpoint, addLog]);
+  }, [selectedGame, loadCheckpoint, resumeFromSaved, addLog]);
   
   // Stop training
   const handleStop = useCallback(() => {
@@ -504,6 +541,11 @@ function AtariDashboard() {
                   savedModels={savedModels}
                   loadCheckpoint={loadCheckpoint}
                   setLoadCheckpoint={setLoadCheckpoint}
+                  resumeFromSaved={resumeFromSaved}
+                  onResumeFromSavedChange={handleResumeFromSavedChange}
+                  onDownloadWeights={handleDownloadWeights}
+                  checkpointRefreshKey={checkpointRefreshKey}
+                  onCheckpointsLoaded={handleCheckpointsLoaded}
                   onDeleteCheckpoint={handleDeleteCheckpoint}
                   trainingSpeed={trainingSpeed}
                   onTrainingSpeedChange={handleTrainingSpeedChange}
