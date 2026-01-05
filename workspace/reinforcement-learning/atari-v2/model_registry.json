@@ -1,0 +1,37 @@
+{
+  "games": {
+    "MsPacman": {
+      "game_id": "ALE/MsPacman-v5",
+      "checkpoints": [
+        {
+          "filename": "checkpoint_ep495_20251228_102429.pt",
+          "episode": 495,
+          "reward": 0,
+          "timestamp": "2025-12-28T10:24:30.259038"
+        }
+      ],
+      "best_checkpoint": "checkpoint_ep495_20251228_102429.pt",
+      "best_reward": 0
+    },
+    "SpaceInvaders": {
+      "game_id": "ALE/SpaceInvaders-v5",
+      "checkpoints": [
+        {
+          "filename": "checkpoint_ep6_20251227_212038.pt",
+          "episode": 6,
+          "reward": 0,
+          "timestamp": "2025-12-27T21:20:39.210770"
+        },
+        {
+          "filename": "checkpoint_ep3_20251228_080218.pt",
+          "episode": 3,
+          "reward": 0,
+          "timestamp": "2025-12-28T08:02:18.398443"
+        }
+      ],
+      "best_checkpoint": "checkpoint_ep3_20251228_080218.pt",
+      "best_reward": 0
+    }
+  },
+  "last_updated": "2025-12-28T11:02:05.222261"
+}
