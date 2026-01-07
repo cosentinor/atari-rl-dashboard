@@ -8,6 +8,7 @@ import json
 import logging
 import shutil
 import re
+import math
 from datetime import datetime
 from typing import Dict, List, Optional, Any
 from pathlib import Path
@@ -68,6 +69,17 @@ class ModelManager:
                     json.dump(self.registry, f, indent=2)
             except Exception as e2:
                 logger.error(f"Fallback save also failed: {e2}")
+
+    @staticmethod
+    def _safe_float(value):
+        """Return a finite float or None for NaN/inf/invalid values."""
+        if value is None:
+            return None
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError):
+            return None
+        return parsed if math.isfinite(parsed) else None
 
     def _sync_registry_from_disk(self):
         """Ensure registry includes checkpoints present on disk."""
@@ -417,6 +429,7 @@ class ModelManager:
         result = []
         for cp in checkpoints:
             cp_copy = cp.copy()
+            cp_copy["reward"] = self._safe_float(cp_copy.get("reward"))
             cp_copy["is_best"] = cp["filename"] == best_filename
             result.append(cp_copy)
         
@@ -466,7 +479,7 @@ class ModelManager:
                 "name": game_name,
                 "game_id": game_data.get("game_id", ""),
                 "num_checkpoints": len(game_data.get("checkpoints", [])),
-                "best_reward": game_data.get("best_reward", 0),
+                "best_reward": self._safe_float(game_data.get("best_reward")),
                 "has_best_model": game_data.get("best_checkpoint") is not None
             })
         return result
