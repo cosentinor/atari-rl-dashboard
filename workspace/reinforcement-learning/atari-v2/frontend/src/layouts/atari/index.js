@@ -198,6 +198,7 @@ function AtariDashboard() {
       console.log('✓ Connected to backend');
       setIsConnected(true);
       addLog('Connected to server', 'success');
+      socket.emit(config.events.getInit);
     });
     
     socket.on('disconnect', () => {

@@ -4,6 +4,7 @@
  */
 
 import { useState } from 'react';
+import { useTheme } from "@mui/material/styles";
 import IconButton from "@mui/material/IconButton";
 import Menu from "@mui/material/Menu";
 import MenuItem from "@mui/material/MenuItem";
@@ -15,10 +16,13 @@ import Icon from "@mui/material/Icon";
 import MDButton from "components/MDButton";
 
 function ShareButton({ sessionId, gameId, bestReward, episodes }) {
+  const theme = useTheme();
   const [anchorEl, setAnchorEl] = useState(null);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
   
   const open = Boolean(anchorEl);
+  const fontFamily = theme.typography?.fontFamily || '"Inter", "Helvetica", "Arial", sans-serif';
+  const primaryFont = fontFamily.split(',')[0]?.replace(/['"]/g, '').trim() || 'Inter';
 
   const shareUrl = `${window.location.origin}/share/${sessionId}`;
   const shareText = `I trained an AI to play ${gameId?.split('/')[1]?.replace('-v5', '') || 'Atari'}! Best score: ${bestReward?.toFixed(0)} in ${episodes} episodes. Watch it play:`;
@@ -65,8 +69,16 @@ function ShareButton({ sessionId, gameId, bestReward, episodes }) {
     handleClose();
   };
 
-  const handleDownloadCard = () => {
+  const handleDownloadCard = async () => {
     // Generate shareable image card
+    if (document.fonts?.load) {
+      try {
+        await document.fonts.load(`600 60px ${primaryFont}`);
+      } catch (err) {
+        console.warn('Share card font load failed:', err);
+      }
+    }
+
     const canvas = document.createElement('canvas');
     canvas.width = 1200;
     canvas.height = 630;
@@ -81,21 +93,21 @@ function ShareButton({ sessionId, gameId, bestReward, episodes }) {
 
     // Title
     ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 60px Arial';
+    ctx.font = `700 60px ${fontFamily}`;
     ctx.fillText('Atari RL Training', 60, 100);
 
     // Game name
     const gameName = gameId?.split('/')[1]?.replace('-v5', '') || 'Atari Game';
-    ctx.font = 'bold 48px Arial';
+    ctx.font = `700 48px ${fontFamily}`;
     ctx.fillText(gameName, 60, 200);
 
     // Stats
-    ctx.font = '36px Arial';
+    ctx.font = `500 36px ${fontFamily}`;
     ctx.fillText(`Best Score: ${bestReward?.toFixed(0)}`, 60, 300);
     ctx.fillText(`Episodes: ${episodes}`, 60, 360);
 
     // Footer
-    ctx.font = '24px Arial';
+    ctx.font = `500 24px ${fontFamily}`;
     ctx.fillText('Watch AI learn to play in real-time', 60, 560);
 
     // Convert to blob and download
@@ -133,6 +145,17 @@ function ShareButton({ sessionId, gameId, bestReward, episodes }) {
         onClose={handleClose}
         anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
         transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+        MenuListProps={{
+          sx: {
+            fontFamily,
+            '& .MuiMenuItem-root': {
+              fontFamily,
+            },
+            '& .MuiListItemText-primary': {
+              fontFamily,
+            },
+          },
+        }}
       >
         <MenuItem onClick={() => handleShare('twitter')}>
           <ListItemIcon>

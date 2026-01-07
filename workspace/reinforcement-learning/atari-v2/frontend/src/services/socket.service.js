@@ -23,10 +23,13 @@ class SocketService {
       return this.socket;
     }
 
+    const transports = ['polling'];
+
     console.log('Connecting to WebSocket:', config.WS_URL);
     
     this.socket = io(config.WS_URL, {
-      transports: ['websocket', 'polling'],
+      transports,
+      upgrade: false,
       reconnection: true,
       reconnectionAttempts: 5,
       reconnectionDelay: 1000

@@ -8,7 +8,7 @@ import Card from '@mui/material/Card';
 import Icon from '@mui/material/Icon';
 import Select from '@mui/material/Select';
 import MenuItem from '@mui/material/MenuItem';
-import Switch from '@mui/material/Switch';
+import { useTheme } from '@mui/material/styles';
 import MDBox from "components/MDBox";
 import MDTypography from "components/MDTypography";
 import MDButton from "components/MDButton";
@@ -31,7 +31,9 @@ function ControlPanel({
   trainingSpeed,
   onTrainingSpeedChange,
 }) {
+  const theme = useTheme();
   const [checkpoints, setCheckpoints] = useState([]);
+  const fontFamily = theme.typography?.fontFamily || '"Inter", "Helvetica", "Arial", sans-serif';
 
   // Fetch checkpoints when game changes
   useEffect(() => {
@@ -79,11 +81,16 @@ function ControlPanel({
     height: '46px',
     backgroundColor: 'rgba(15, 23, 42, 0.6)',
     borderRadius: '12px',
+    fontFamily,
     color: '#e2e8f0',
     '& .MuiSelect-select': {
       display: 'flex',
       alignItems: 'center',
       padding: '10px 12px',
+      fontFamily,
+    },
+    '& .MuiSelect-select.Mui-disabled': {
+      WebkitTextFillColor: 'rgba(226, 232, 240, 0.6)',
     },
     '& .MuiSelect-icon': {
       color: 'rgba(226, 232, 240, 0.7)',
@@ -110,6 +117,7 @@ function ControlPanel({
         '& .MuiMenuItem-root': {
           color: '#e2e8f0',
           fontSize: '0.95rem',
+          fontFamily,
           '&:hover': {
             backgroundColor: 'rgba(148, 163, 184, 0.12)',
           },
@@ -183,17 +191,87 @@ function ControlPanel({
     ? games.find((game) => game.id === selectedGame)
     : null;
   const trainedEpisodes = selectedGameInfo?.trained_episodes;
-  const trainedEpisodesLabel =
-    typeof trainedEpisodes === 'number' && trainedEpisodes > 0
-      ? trainedEpisodes.toLocaleString()
-      : 'n/a';
+  const formatEpisodeCount = (value) => {
+    if (typeof value !== 'number' || Number.isNaN(value)) return null;
+    return value.toLocaleString();
+  };
 
-  const formatCheckpointLabel = (checkpoint) => {
-    if (!checkpoint) return '';
-    const rewardValue =
-      typeof checkpoint.reward === 'number' ? checkpoint.reward.toFixed(1) : 'n/a';
-    const bestLabel = checkpoint.is_best ? ' (best)' : '';
-    return `Ep ${checkpoint.episode} - Reward ${rewardValue}${bestLabel}`;
+  const sortedCheckpoints = [...checkpoints].sort(
+    (a, b) => (b.episode ?? 0) - (a.episode ?? 0)
+  );
+  const latestCheckpoint = sortedCheckpoints[0] || null;
+  const latestEpisodeLabel = formatEpisodeCount(latestCheckpoint?.episode);
+  const maxTrainingEpisodes =
+    typeof trainedEpisodes === 'number' && trainedEpisodes > 0 ? trainedEpisodes : null;
+  const maxTrainingLabel = formatEpisodeCount(maxTrainingEpisodes);
+  const halfTrainingEpisodes = maxTrainingEpisodes
+    ? Math.round(maxTrainingEpisodes / 2)
+    : null;
+  const halfTrainingLabel = formatEpisodeCount(halfTrainingEpisodes);
+
+  const findClosestCheckpoint = (targetEpisode) => {
+    if (
+      targetEpisode === null ||
+      targetEpisode === undefined ||
+      Number.isNaN(targetEpisode) ||
+      sortedCheckpoints.length === 0
+    ) {
+      return null;
+    }
+    return sortedCheckpoints.reduce((closest, checkpoint) => {
+      if (!closest) return checkpoint;
+      const currentDistance = Math.abs((checkpoint.episode ?? 0) - targetEpisode);
+      const bestDistance = Math.abs((closest.episode ?? 0) - targetEpisode);
+      return currentDistance < bestDistance ? checkpoint : closest;
+    }, null);
+  };
+
+  const halfCheckpoint = halfTrainingEpisodes
+    ? findClosestCheckpoint(halfTrainingEpisodes)
+    : null;
+  const maxCheckpoint = maxTrainingEpisodes
+    ? findClosestCheckpoint(maxTrainingEpisodes)
+    : latestCheckpoint;
+
+  const halfOptionLabel = halfTrainingLabel
+    ? `Halfway (Ep ${halfTrainingLabel})`
+    : 'Halfway';
+
+  let maxOptionLabel = maxTrainingLabel
+    ? `Max training (Ep ${maxTrainingLabel})`
+    : 'Last saved';
+  if (!maxTrainingLabel && latestEpisodeLabel) {
+    maxOptionLabel = `Last saved (Ep ${latestEpisodeLabel})`;
+  }
+  if (
+    maxTrainingLabel &&
+    latestEpisodeLabel &&
+    latestCheckpoint?.episode !== maxTrainingEpisodes
+  ) {
+    maxOptionLabel = `${maxOptionLabel} - last saved Ep ${latestEpisodeLabel}`;
+  }
+
+  const startFromValue = !resumeFromSaved
+    ? 'fresh'
+    : halfCheckpoint && loadCheckpoint === halfCheckpoint.filename
+    ? 'half'
+    : 'max';
+
+  const handleStartFromChange = (event) => {
+    const nextValue = event.target.value;
+    if (nextValue === 'fresh') {
+      onResumeFromSavedChange?.(false);
+      setLoadCheckpoint('');
+      return;
+    }
+
+    onResumeFromSavedChange?.(true);
+    if (nextValue === 'half') {
+      setLoadCheckpoint(halfCheckpoint?.filename || '');
+      return;
+    }
+
+    setLoadCheckpoint(maxCheckpoint?.filename || '');
   };
 
   return (
@@ -217,7 +295,11 @@ function ControlPanel({
               MenuProps={menuProps}
               renderValue={(selected) => {
                 if (!selected) {
-                  return <span style={{ color: 'rgba(226, 232, 240, 0.6)' }}>Select Game</span>;
+                  return (
+                    <span style={{ color: 'rgba(226, 232, 240, 0.6)', fontFamily }}>
+                      Select Game
+                    </span>
+                  );
                 }
                 const game = games.find((g) => g.id === selected);
                 return game?.display_name || game?.name || selected;
@@ -233,54 +315,23 @@ function ControlPanel({
 
           {selectedGame && (
             <MDBox>
-              <MDTypography variant="caption" sx={{ color: 'rgba(226, 232, 240, 0.6)' }}>
-                Trained episodes (Thunder Compute): {trainedEpisodesLabel}
-              </MDTypography>
-            </MDBox>
-          )}
-
-          {selectedGame && (
-            <MDBox>
-              <MDBox display="flex" alignItems="center" justifyContent="space-between" gap={1}>
-                <MDTypography sx={sectionLabelSx}>Start From Saved Weights</MDTypography>
-                <Switch
-                  checked={Boolean(resumeFromSaved)}
-                  onChange={(e) => onResumeFromSavedChange?.(e.target.checked)}
-                  disabled={isTraining || checkpoints.length === 0}
-                  color="info"
-                />
-              </MDBox>
-              <MDTypography variant="caption" sx={{ color: 'rgba(226, 232, 240, 0.55)' }}>
-                Uses the latest checkpoint unless you pick one below.
-              </MDTypography>
-            </MDBox>
-          )}
-
-          {selectedGame && checkpoints.length > 0 && resumeFromSaved && (
-            <MDBox>
-              <MDTypography sx={sectionLabelSx}>Resume From</MDTypography>
+              <MDTypography sx={sectionLabelSx}>Start game from:</MDTypography>
               <Select
-                value={loadCheckpoint || ''}
-                onChange={(e) => setLoadCheckpoint(e.target.value)}
+                value={startFromValue}
+                onChange={handleStartFromChange}
                 disabled={isTraining}
                 displayEmpty
                 fullWidth
                 sx={selectSx}
                 MenuProps={menuProps}
-                renderValue={(selected) => {
-                  if (!selected) {
-                    return <span style={{ color: 'rgba(226, 232, 240, 0.6)' }}>Latest saved weights</span>;
-                  }
-                  const checkpoint = checkpoints.find((cp) => cp.filename === selected);
-                  return formatCheckpointLabel(checkpoint) || selected;
-                }}
               >
-                <MenuItem value="">Latest saved weights</MenuItem>
-                {checkpoints.map((cp) => (
-                  <MenuItem key={cp.filename} value={cp.filename}>
-                    {formatCheckpointLabel(cp)}
-                  </MenuItem>
-                ))}
+                <MenuItem value="fresh">0</MenuItem>
+                <MenuItem value="half" disabled={!halfCheckpoint}>
+                  {halfCheckpoint ? halfOptionLabel : `${halfOptionLabel} (unavailable)`}
+                </MenuItem>
+                <MenuItem value="max" disabled={!maxCheckpoint}>
+                  {maxOptionLabel}
+                </MenuItem>
               </Select>
             </MDBox>
           )}

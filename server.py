@@ -55,8 +55,40 @@ socketio = SocketIO(
     cors_allowed_origins=cors_origins,
     async_mode='threading',
     ping_timeout=60,
-    ping_interval=25
+    ping_interval=25,
+    allow_upgrades=False,
+    transports=['polling']
 )
+
+
+def _build_init_payload() -> dict:
+    """Build the init payload for new clients."""
+    games = [
+        {
+            'id': g.id,
+            'name': g.name,
+            'display_name': g.display_name,
+            'action_space_size': int(g.action_space_size) if g.action_space_size is not None else 0,
+            'action_names': g.action_names or [],
+            'is_available': g.is_available
+        }
+        for g in game_envs.games.values()
+        if g.is_available
+    ]
+
+    device = get_device()
+
+    return {
+        'games': games,
+        'isTraining': is_training,
+        'currentGame': current_game,
+        'sessionId': current_session_id,
+        'savedModels': model_manager.get_all_games(),
+        'device': str(device),
+        'trainingSpeed': training_speed,
+        'vizFrameSkip': viz_frame_skip,
+        'vizTargetFps': viz_target_fps
+    }
 
 # Global state
 game_envs = GameEnvironments()
@@ -429,35 +461,12 @@ def get_viz_settings(game_id: str) -> dict:
 def handle_connect(auth=None):
     """Handle new client connection."""
     logger.info("Client connected")
-    
-    # Send initial state
-    games = [
-        {
-            'id': g.id,
-            'name': g.name,
-            'display_name': g.display_name,
-            'action_space_size': int(g.action_space_size) if g.action_space_size is not None else 0,
-            'action_names': g.action_names or [],
-            'is_available': g.is_available
-        }
-        for g in game_envs.games.values()
-        if g.is_available
-    ]
-    
-    # Get device info
-    device = get_device()
-    
-    emit('init', {
-        'games': games,
-        'isTraining': is_training,
-        'currentGame': current_game,
-        'sessionId': current_session_id,
-        'savedModels': model_manager.get_all_games(),
-        'device': str(device),
-        'trainingSpeed': training_speed,
-        'vizFrameSkip': viz_frame_skip,
-        'vizTargetFps': viz_target_fps
-    })
+
+
+@socketio.on('get_init')
+def handle_get_init():
+    """Send init payload after the client confirms it is connected."""
+    emit('init', _build_init_payload())
 
 
 @socketio.on('disconnect')

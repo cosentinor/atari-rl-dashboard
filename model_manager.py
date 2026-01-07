@@ -32,6 +32,7 @@ class ModelManager:
         
         self.registry_path = self.base_dir / "model_registry.json"
         self.registry = self._load_registry()
+        self._sync_registry_from_disk()
         
         # Auto-save settings
         self.auto_save_interval = 100  # Episodes
@@ -67,6 +68,91 @@ class ModelManager:
                     json.dump(self.registry, f, indent=2)
             except Exception as e2:
                 logger.error(f"Fallback save also failed: {e2}")
+
+    def _sync_registry_from_disk(self):
+        """Ensure registry includes checkpoints present on disk."""
+        changed = False
+
+        if "games" not in self.registry:
+            self.registry["games"] = {}
+            changed = True
+
+        for game_dir in self.base_dir.iterdir():
+            if not game_dir.is_dir():
+                continue
+
+            clean_name = game_dir.name
+            game_entry = self.registry["games"].get(clean_name)
+            if not game_entry:
+                game_entry = {
+                    "game_id": f"ALE/{clean_name}-v5",
+                    "checkpoints": [],
+                    "best_checkpoint": None,
+                    "best_reward": float("-inf"),
+                }
+                self.registry["games"][clean_name] = game_entry
+                changed = True
+            elif not game_entry.get("game_id"):
+                game_entry["game_id"] = f"ALE/{clean_name}-v5"
+                changed = True
+
+            existing = {
+                cp.get("filename"): cp
+                for cp in game_entry.get("checkpoints", [])
+                if cp.get("filename")
+            }
+            disk_checkpoints = {p.name: p for p in game_dir.glob("checkpoint_ep*.pt")}
+
+            next_checkpoints = []
+            for filename, path in disk_checkpoints.items():
+                episode = 0
+                match = re.search(r"checkpoint_ep(\d+)_", filename)
+                if match:
+                    episode = int(match.group(1))
+
+                timestamp_match = re.search(r"checkpoint_ep\d+_(\d{8}_\d{6})", filename)
+                if timestamp_match:
+                    try:
+                        timestamp = datetime.strptime(timestamp_match.group(1), "%Y%m%d_%H%M%S").isoformat()
+                    except ValueError:
+                        timestamp = datetime.fromtimestamp(path.stat().st_mtime).isoformat()
+                else:
+                    timestamp = datetime.fromtimestamp(path.stat().st_mtime).isoformat()
+
+                existing_checkpoint = existing.get(filename, {})
+                reward = existing_checkpoint.get("reward")
+                prev_timestamp = existing_checkpoint.get("timestamp")
+                entry = {
+                    "filename": filename,
+                    "episode": episode,
+                    "reward": reward,
+                    "timestamp": prev_timestamp or timestamp,
+                }
+                next_checkpoints.append(entry)
+
+            if set(existing) != set(disk_checkpoints):
+                changed = True
+            else:
+                for cp in next_checkpoints:
+                    existing_cp = existing.get(cp["filename"], {})
+                    if (
+                        existing_cp.get("episode") != cp["episode"]
+                        or existing_cp.get("reward") != cp["reward"]
+                        or existing_cp.get("timestamp") != cp["timestamp"]
+                    ):
+                        changed = True
+                        break
+
+            game_entry["checkpoints"] = next_checkpoints
+
+            best_filename = game_entry.get("best_checkpoint")
+            if best_filename and best_filename not in disk_checkpoints:
+                game_entry["best_checkpoint"] = None
+                game_entry["best_reward"] = float("-inf")
+                changed = True
+
+        if changed:
+            self._save_registry()
     
     def get_game_dir(self, game_id: str) -> Path:
         """Get directory for a specific game."""
