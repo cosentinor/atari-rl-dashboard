@@ -117,6 +117,38 @@ RAINBOW_HYPERPARAMS = {
     "epsilon_decay_episodes": 50
 }
 
+# ============== Training Levels ==============
+
+TRAINING_LEVELS = {
+    "low": {
+        "label": "Low",
+        "description": "Lower compute, smaller batches",
+        "buffer_size": 50000,
+        "min_buffer_size": 1000,
+        "batch_size": 16,
+        "n_step": 3,
+        "store_uint8": True
+    },
+    "medium": {
+        "label": "Medium",
+        "description": "Balanced default",
+        "buffer_size": 100000,
+        "min_buffer_size": 1000,
+        "batch_size": 32,
+        "n_step": 3,
+        "store_uint8": False
+    },
+    "high": {
+        "label": "High",
+        "description": "Higher compute, larger batches",
+        "buffer_size": 200000,
+        "min_buffer_size": 5000,
+        "batch_size": 64,
+        "n_step": 3,
+        "store_uint8": False
+    }
+}
+
 # ============== Training Presets ==============
 
 TRAINING_PRESETS = {

@@ -1,0 +1,13 @@
+/var/log/atari/*.log {
+    daily
+    missingok
+    rotate 7
+    compress
+    delaycompress
+    notifempty
+    create 0640 riccardo riccardo
+    postrotate
+        systemctl reload atari > /dev/null 2>&1 || true
+    endscript
+}
+

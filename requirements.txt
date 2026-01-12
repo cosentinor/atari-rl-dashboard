@@ -18,3 +18,8 @@ torchvision>=0.15.0
 # pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
 # For Apple Silicon (MPS):
 # pip install torch torchvision (MPS is included by default)
+
+# Pretrained model adapters
+stable-baselines3>=2.2.1
+sb3-contrib>=2.2.1
+pfrl>=0.4.0
