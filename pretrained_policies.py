@@ -16,6 +16,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from rainbow_agent import RainbowAgent
+
 
 class AtariNet(nn.Module):
     """Bitdefender AtariNet architecture used in their model zoo."""
@@ -98,6 +100,28 @@ class BitdefenderPolicy:
             q_values = self.model.get_q_values(state_t)
         self.last_q_value = float(q_values.max().item())
         return int(q_values.argmax(dim=1).item())
+
+
+class LocalCheckpointPolicy:
+    """Inference-only policy for locally trained Rainbow checkpoints."""
+
+    def __init__(
+        self,
+        checkpoint_path: str | Path,
+        num_actions: int,
+        device: Optional[torch.device] = None,
+    ):
+        self.checkpoint_path = Path(checkpoint_path)
+        self.device = device or torch.device("cpu")
+        self.agent = RainbowAgent(state_shape=(4, 84, 84), num_actions=num_actions, device=self.device)
+        self.agent.current_epsilon = 0.0
+        self.agent.load(str(self.checkpoint_path))
+        self.last_q_value = 0.0
+
+    def select_action(self, state) -> int:
+        action = self.agent.select_action(state, training=False)
+        self.last_q_value = self.agent.last_q_value
+        return int(action)
 
 
 class FactorizedNoisyLinear(nn.Module):

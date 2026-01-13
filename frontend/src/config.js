@@ -46,6 +46,7 @@ const config = {
     stopTraining: 'stop_training',
     saveModel: 'save_model',
     setTrainingSpeed: 'set_training_speed',
+    setTrainingLevel: 'set_training_level',
     setVizSpeed: 'set_viz_speed',
     deleteCheckpoint: 'delete_checkpoint',
     getHistory: 'get_history',

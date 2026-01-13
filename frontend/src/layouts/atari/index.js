@@ -135,13 +135,6 @@ const DEFAULT_GAMES = [
   },
 ];
 
-const SOURCE_LABELS = {
-  bitdefender: 'Bitdefender',
-  sb3: 'SB3 RL Zoo',
-  pfrl: 'PFRL Zoo',
-};
-
-
 function AtariDashboard() {
   const [isConnected, setIsConnected] = useState(false);
   const [games, setGames] = useState(DEFAULT_GAMES);
@@ -155,9 +148,6 @@ function AtariDashboard() {
   const [availableCheckpoints, setAvailableCheckpoints] = useState([]);
   const [pretrainedLevels, setPretrainedLevels] = useState({ low: null, medium: null, high: null });
   const [pretrainedLoading, setPretrainedLoading] = useState(false);
-  const [pretrainedModels, setPretrainedModels] = useState([]);
-  const [pretrainedSource, setPretrainedSource] = useState('bitdefender');
-  const [selectedPretrainedModelId, setSelectedPretrainedModelId] = useState('');
   const [trainingSpeed, setTrainingSpeed] = useState('1x');
   const [trainingLevel, setTrainingLevel] = useState('medium');
   
@@ -373,8 +363,6 @@ function AtariDashboard() {
     setResumeFromSaved(false);
     setAvailableCheckpoints([]);
     setPretrainedLevels({ low: null, medium: null, high: null });
-    setPretrainedModels([]);
-    setSelectedPretrainedModelId('');
     setSessionId(null);
     setStats({
       episode: 0,
@@ -419,7 +407,6 @@ function AtariDashboard() {
   useEffect(() => {
     if (!selectedGame) {
       setPretrainedLevels({ low: null, medium: null, high: null });
-      setPretrainedModels([]);
       return;
     }
     const gameKey = selectedGame.replace(/\//g, '_');
@@ -429,128 +416,27 @@ function AtariDashboard() {
       .then(data => {
         if (data && data.success && data.levels) {
           setPretrainedLevels(data.levels);
-          setPretrainedModels(Array.isArray(data.models) ? data.models : []);
         } else {
           setPretrainedLevels({ low: null, medium: null, high: null });
-          setPretrainedModels([]);
         }
       })
       .catch(() => {
         setPretrainedLevels({ low: null, medium: null, high: null });
-        setPretrainedModels([]);
       })
       .finally(() => {
         setPretrainedLoading(false);
       });
   }, [selectedGame]);
 
-  const hasBitdefenderLevels = Boolean(
-    pretrainedLevels.low || pretrainedLevels.medium || pretrainedLevels.high
+  const hasPretrainedModels = useMemo(
+    () => Boolean(pretrainedLevels.low || pretrainedLevels.medium || pretrainedLevels.high),
+    [pretrainedLevels]
   );
 
-  const availableSources = useMemo(() => {
-    const sourceSet = new Set();
-    pretrainedModels.forEach((model) => {
-      if (model?.source) sourceSet.add(model.source);
-    });
-    if (hasBitdefenderLevels) {
-      sourceSet.add('bitdefender');
-    }
-    const preferred = ['bitdefender', 'sb3', 'pfrl'];
-    const ordered = preferred.filter((source) => sourceSet.has(source));
-    const extras = Array.from(sourceSet).filter((source) => !preferred.includes(source));
-    return [...ordered, ...extras];
-  }, [pretrainedModels, hasBitdefenderLevels]);
-
-  const sourceOptions = useMemo(
-    () =>
-      availableSources.map((source) => ({
-        value: source,
-        label: SOURCE_LABELS[source] || source,
-      })),
-    [availableSources]
+  const selectedPretrainedModel = useMemo(
+    () => pretrainedLevels[trainingLevel] || null,
+    [pretrainedLevels, trainingLevel]
   );
-
-  const isBitdefenderSource = pretrainedSource === 'bitdefender';
-
-  const filteredPretrainedModels = useMemo(() => {
-    if (!pretrainedSource) return [];
-    return pretrainedModels.filter((model) => model?.source === pretrainedSource);
-  }, [pretrainedModels, pretrainedSource]);
-
-  const pretrainedModelOptions = useMemo(() => {
-    return filteredPretrainedModels.map((model) => {
-      const algorithm = model.algorithm ? model.algorithm.toUpperCase() : 'MODEL';
-      const parts = [algorithm];
-      if (model.step) {
-        parts.push(`${Math.round(model.step / 1000000)}M`);
-      }
-      if (model.level) {
-        parts.push(model.level.toUpperCase());
-      }
-      if (model.filename) {
-        const name = model.filename.replace('.zip', '').replace('.gz', '');
-        if (name !== model.filename) {
-          parts.push(name);
-        }
-      }
-      return {
-        id: model.id,
-        label: parts.join(' • '),
-      };
-    });
-  }, [filteredPretrainedModels]);
-
-  useEffect(() => {
-    if (!availableSources.length) {
-      setPretrainedSource('');
-      setSelectedPretrainedModelId('');
-      return;
-    }
-    if (!availableSources.includes(pretrainedSource)) {
-      setPretrainedSource(availableSources[0]);
-    }
-  }, [availableSources, pretrainedSource]);
-
-  useEffect(() => {
-    if (!pretrainedSource || pretrainedSource === 'bitdefender') {
-      setSelectedPretrainedModelId('');
-      return;
-    }
-    if (!filteredPretrainedModels.length) {
-      setSelectedPretrainedModelId('');
-      return;
-    }
-    const exists = filteredPretrainedModels.some((model) => model.id === selectedPretrainedModelId);
-    if (!exists) {
-      setSelectedPretrainedModelId(filteredPretrainedModels[0].id);
-    }
-  }, [pretrainedSource, filteredPretrainedModels, selectedPretrainedModelId]);
-
-  const selectedPretrainedModel = useMemo(() => {
-    if (!pretrainedSource) return null;
-    if (pretrainedSource === 'bitdefender') {
-      return pretrainedLevels[trainingLevel] || null;
-    }
-    return (
-      filteredPretrainedModels.find((model) => model.id === selectedPretrainedModelId) ||
-      filteredPretrainedModels[0] ||
-      null
-    );
-  }, [pretrainedSource, trainingLevel, pretrainedLevels, filteredPretrainedModels, selectedPretrainedModelId]);
-
-  const hasPretrainedModels = isBitdefenderSource
-    ? hasBitdefenderLevels
-    : filteredPretrainedModels.length > 0;
-
-  const handlePretrainedSourceChange = useCallback((source) => {
-    setPretrainedSource(source);
-    setSelectedPretrainedModelId('');
-  }, []);
-
-  const handlePretrainedModelChange = useCallback((modelId) => {
-    setSelectedPretrainedModelId(modelId);
-  }, []);
 
   useEffect(() => {
     if (selectedPretrainedModel) {
@@ -572,6 +458,7 @@ function AtariDashboard() {
     setResumeFromSaved(false);
     setLoadCheckpoint('');
   }, [selectedPretrainedModel, availableCheckpoints]);
+
   const handleDownloadWeights = useCallback((gameId, checkpointName, pretrainedId) => {
     if (!gameId) return;
     const baseUrl = config.API_BASE_URL || '';
@@ -662,8 +549,14 @@ function AtariDashboard() {
   // Training level change
   const handleTrainingLevelChange = useCallback((level) => {
     setTrainingLevel(level);
+    if (selectedGame) {
+      socketService.emit(config.events.setTrainingLevel, {
+        trainingLevel: level,
+        game: selectedGame,
+      });
+    }
     addLog(`Training level set to ${level}`);
-  }, [addLog]);
+  }, [addLog, selectedGame]);
 
   // Training speed change
   const handleTrainingSpeedChange = useCallback((speed) => {
@@ -974,13 +867,6 @@ function AtariDashboard() {
                   onTrainingSpeedChange={handleTrainingSpeedChange}
                   trainingLevel={trainingLevel}
                   onTrainingLevelChange={handleTrainingLevelChange}
-                  pretrainedSource={pretrainedSource}
-                  pretrainedSourceOptions={sourceOptions}
-                  onPretrainedSourceChange={handlePretrainedSourceChange}
-                  pretrainedModelOptions={pretrainedModelOptions}
-                  selectedPretrainedModelId={selectedPretrainedModelId}
-                  onPretrainedModelChange={handlePretrainedModelChange}
-                  isBitdefenderSource={isBitdefenderSource}
                   hasPretrainedModels={hasPretrainedModels}
                 />
               </Grid>

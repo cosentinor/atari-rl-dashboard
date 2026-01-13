@@ -11,18 +11,18 @@ import MDTypography from "components/MDTypography";
 const LEVEL_COPY = {
   low: {
     label: 'Low',
-    title: 'Early training snapshot',
-    description: 'Shows the agent while it is still learning core mechanics.',
+    title: 'RC_model (local)',
+    description: 'Locally trained snapshot between 10k and 50k episodes.',
   },
   medium: {
     label: 'Medium',
-    title: 'Mid training snapshot',
-    description: 'Balances exploration with more consistent scoring behavior.',
+    title: 'Bitdefender 10M steps',
+    description: 'Bitdefender DQN snapshot trained for roughly 10M steps.',
   },
   high: {
     label: 'High',
-    title: 'Late training snapshot',
-    description: 'Most advanced checkpoint available for this game.',
+    title: 'Bitdefender 50M steps',
+    description: 'Bitdefender DQN snapshot trained for roughly 50M steps.',
   },
 };
 
@@ -30,6 +30,8 @@ const SOURCE_LABELS = {
   bitdefender: 'Bitdefender',
   sb3: 'SB3 RL Zoo',
   pfrl: 'PFRL Zoo',
+  local: 'RC_model',
+  rc_model: 'RC_model',
 };
 
 const formatNumber = (value) => {
@@ -51,6 +53,7 @@ const formatDate = (value) => {
 
 const formatAlgorithm = (value) => {
   if (!value) return '-';
+  if (value === 'RC_model') return value;
   return value.toUpperCase();
 };
 
@@ -67,18 +70,18 @@ function ModelExplanation({
   const trainedEpisodes = gameInfo?.trained_episodes;
   const isPretrained = Boolean(pretrainedModel);
   const activeModel = pretrainedModel || checkpoint || null;
+  const source = (pretrainedModel?.source || '').toLowerCase();
+  const isLocal = source === 'local' || source === 'rc_model';
   const sourceLabel = SOURCE_LABELS[pretrainedModel?.source] || pretrainedModel?.source;
-  const headerLabel = isPretrained && pretrainedModel?.source && pretrainedModel?.source !== 'bitdefender'
-    ? `${gameLabel} - ${sourceLabel}`
-    : `${gameLabel} - ${levelInfo.label}`;
+  const headerLabel = `${gameLabel} - ${levelInfo.label}`;
 
-  const descriptionText = isPretrained && pretrainedModel?.source !== 'bitdefender'
+  const descriptionText = isPretrained && !isLocal && source && source !== 'bitdefender'
     ? `Pre-trained checkpoint from ${sourceLabel || 'external source'}.`
     : `${levelInfo.title}. ${levelInfo.description}`;
 
   const progressPercent =
-    !isPretrained && checkpoint && typeof trainedEpisodes === 'number' && trainedEpisodes > 0
-      ? Math.min(100, Math.round((checkpoint.episode / trainedEpisodes) * 100))
+    (isLocal || !isPretrained) && activeModel && typeof trainedEpisodes === 'number' && trainedEpisodes > 0
+      ? Math.min(100, Math.round((activeModel.episode / trainedEpisodes) * 100))
       : null;
 
   const cardSx = {
@@ -140,7 +143,7 @@ function ModelExplanation({
               {descriptionText}
             </MDTypography>
 
-            {isPretrained ? (
+            {(isPretrained && !isLocal) ? (
               <MDBox
                 mt={2}
                 display="grid"

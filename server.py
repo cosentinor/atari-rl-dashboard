@@ -17,7 +17,7 @@ from frame_streamer import FrameStreamer
 from rainbow_agent import RainbowAgent, FrameStack, get_device
 from model_manager import ModelManager
 from pretrained_manager import PretrainedManager
-from pretrained_policies import BitdefenderPolicy, SB3Policy, PFRLPolicy
+from pretrained_policies import BitdefenderPolicy, SB3Policy, PFRLPolicy, LocalCheckpointPolicy
 from db_manager import TrainingDatabase
 from config import AUTOSAVE_INTERVAL_SECONDS, TRAINING_LEVELS
 
@@ -114,6 +114,7 @@ frame_stack = None
 current_run_mode = "train"
 current_pretrained_model = None
 pretrained_policy = None
+current_num_actions = None
 
 # Watch mode state
 watch_mode_active = False
@@ -123,6 +124,13 @@ watch_mode_thread = None
 # Speed control settings
 training_speed = "1x"  # 1x, 2x, 4x
 training_level = "medium"  # low, medium, high
+LOCAL_MODEL_ID_PREFIX = "rc_model"
+LOCAL_MODEL_SOURCE = "local"
+LOCAL_MODEL_ALGORITHM = "RC_model"
+LOCAL_MODEL_MIN_EPISODES = 10000
+LOCAL_MODEL_MAX_EPISODES = 50000
+BITDEFENDER_LEVEL_STEPS = {"medium": 10000000, "high": 50000000}
+BITDEFENDER_ALGORITHM_PREFERENCE = ("DQN_modern", "DQN")
 viz_frame_skip = 1  # 1 = every frame, 2 = every 2nd, etc.
 viz_target_fps = 24  # Visualization FPS target for streaming
 
@@ -180,6 +188,138 @@ def _resolve_training_level(value: str | None) -> str:
         return "high"
     return "medium"
 
+
+
+
+
+def _format_game_label(game_id: str) -> str:
+    info = game_envs.get_game_info(game_id)
+    if info:
+        return info.display_name or info.name or game_id
+    return game_id.split("/")[-1].replace("-v5", "")
+
+
+def _local_model_id(game_id: str, checkpoint_name: str) -> str:
+    return f"{LOCAL_MODEL_ID_PREFIX}:{game_id}:{checkpoint_name}"
+
+
+def _parse_local_model_id(model_id: str):
+    if not model_id:
+        return None
+    prefix = f"{LOCAL_MODEL_ID_PREFIX}:"
+    if not model_id.startswith(prefix):
+        return None
+    payload = model_id[len(prefix):]
+    game_id, sep, checkpoint = payload.partition(":")
+    if not sep:
+        return None
+    return game_id, checkpoint
+
+
+def _build_local_model_info(game_id: str, checkpoint: dict, path: str) -> dict:
+    game_label = _format_game_label(game_id)
+    return {
+        "id": _local_model_id(game_id, checkpoint.get("filename")),
+        "source": LOCAL_MODEL_SOURCE,
+        "algorithm": LOCAL_MODEL_ALGORITHM,
+        "game": game_label,
+        "game_id": game_id,
+        "seed": None,
+        "step": None,
+        "level": "low",
+        "filename": checkpoint.get("filename"),
+        "format": "pt",
+        "framework": "pytorch",
+        "path": path,
+        "episode": checkpoint.get("episode"),
+        "reward": checkpoint.get("reward"),
+        "timestamp": checkpoint.get("timestamp"),
+    }
+
+
+def _resolve_local_checkpoint(game_id: str) -> dict | None:
+    checkpoints = model_manager.get_available_checkpoints(game_id)
+    candidates = [
+        cp
+        for cp in checkpoints
+        if isinstance(cp.get("episode"), int)
+        and LOCAL_MODEL_MIN_EPISODES <= cp.get("episode") <= LOCAL_MODEL_MAX_EPISODES
+    ]
+    if not candidates:
+        return None
+    checkpoint = max(candidates, key=lambda cp: cp.get("episode") or 0)
+    filename = checkpoint.get("filename")
+    if not filename:
+        return None
+    path = model_manager.resolve_checkpoint_path(game_id, filename)
+    if not path:
+        return None
+    return _build_local_model_info(game_id, checkpoint, path)
+
+
+def _resolve_local_model_by_id(model_id: str) -> dict | None:
+    parsed = _parse_local_model_id(model_id)
+    if not parsed:
+        return None
+    game_id, checkpoint_name = parsed
+    path = model_manager.resolve_checkpoint_path(game_id, checkpoint_name)
+    if not path:
+        return None
+    checkpoint = next(
+        (cp for cp in model_manager.get_available_checkpoints(game_id) if cp.get("filename") == checkpoint_name),
+        {"filename": checkpoint_name},
+    )
+    return _build_local_model_info(game_id, checkpoint, path)
+
+
+def _select_bitdefender_model(game_id: str, step_target: int) -> dict | None:
+    models = pretrained_manager.get_game_models(game_id)
+    candidates = [
+        model
+        for model in models
+        if (model.get("source") or "").lower() == "bitdefender"
+        and model.get("step") == step_target
+    ]
+    if not candidates:
+        return None
+    def algo_rank(model: dict) -> int:
+        algo = (model.get("algorithm") or "").lower()
+        for idx, pref in enumerate(BITDEFENDER_ALGORITHM_PREFERENCE):
+            if algo == pref.lower():
+                return idx
+        return len(BITDEFENDER_ALGORITHM_PREFERENCE)
+    def seed_rank(model: dict) -> int:
+        seed = model.get("seed")
+        return seed if isinstance(seed, int) else 999
+    return min(candidates, key=lambda model: (algo_rank(model), seed_rank(model)))
+
+
+def _resolve_pretrained_level(game_id: str, level: str) -> dict | None:
+    resolved = _resolve_training_level(level)
+    if resolved == "low":
+        return _resolve_local_checkpoint(game_id)
+    step_target = BITDEFENDER_LEVEL_STEPS.get(resolved)
+    if not step_target:
+        return None
+    model = _select_bitdefender_model(game_id, step_target)
+    if not model:
+        return None
+    model_copy = dict(model)
+    model_copy["level"] = resolved
+    return model_copy
+
+
+def _resolve_pretrained_model(game_id: str, level: str, pretrained_id: str | None) -> dict | None:
+    if pretrained_id:
+        local_info = _resolve_local_model_by_id(pretrained_id)
+        if local_info:
+            return local_info
+        model_info = pretrained_manager.get_model(pretrained_id)
+        if model_info:
+            model_copy = dict(model_info)
+            model_copy.setdefault("level", _resolve_training_level(level))
+            return model_copy
+    return _resolve_pretrained_level(game_id, level)
 
 
 def _trim_memory():
@@ -336,11 +476,15 @@ def download_model(game_id):
 def get_pretrained_models(game_id):
     """Get pretrained model levels for a specific game."""
     game_id = game_id.replace('_', '/')
-    levels = pretrained_manager.get_game_levels(game_id)
+    levels = {
+        "low": _resolve_pretrained_level(game_id, "low"),
+        "medium": _resolve_pretrained_level(game_id, "medium"),
+        "high": _resolve_pretrained_level(game_id, "high"),
+    }
     serialized_levels = {
-        'low': serialize_pretrained_model(levels.get('low')),
-        'medium': serialize_pretrained_model(levels.get('medium')),
-        'high': serialize_pretrained_model(levels.get('high')),
+        "low": serialize_pretrained_model(levels.get("low")),
+        "medium": serialize_pretrained_model(levels.get("medium")),
+        "high": serialize_pretrained_model(levels.get("high")),
     }
     models = [serialize_pretrained_model(m) for m in pretrained_manager.get_game_models(game_id)]
     models = [m for m in models if m]
@@ -358,6 +502,16 @@ def download_pretrained_model():
     model_id = request.args.get('id')
     if not model_id:
         return jsonify({'success': False, 'message': 'Missing model id'}), 400
+
+    local_info = _resolve_local_model_by_id(model_id)
+    if local_info:
+        model_path = Path(local_info.get('path') or '').resolve()
+        base_dir = model_manager.base_dir.resolve()
+        if not model_path.exists():
+            return jsonify({'success': False, 'message': 'Model file missing on disk'}), 404
+        if base_dir not in model_path.parents:
+            return jsonify({'success': False, 'message': 'Invalid model path'}), 400
+        return send_file(model_path, as_attachment=True, download_name=model_path.name)
 
     model_info = pretrained_manager.get_model(model_id)
     if not model_info:
@@ -796,6 +950,9 @@ def serialize_pretrained_model(model_info: dict | None) -> dict | None:
         'filename': model_info.get('filename'),
         'format': model_info.get('format'),
         'framework': model_info.get('framework'),
+        'episode': model_info.get('episode'),
+        'reward': model_info.get('reward'),
+        'timestamp': model_info.get('timestamp'),
     }
 def load_pretrained_policy(model_info: dict, num_actions: int, device):
     """Create a policy instance for a pretrained model entry."""
@@ -808,6 +965,8 @@ def load_pretrained_policy(model_info: dict, num_actions: int, device):
     if source == 'bitdefender':
         num_atoms = 51 if 'C51' in algorithm else 1
         return BitdefenderPolicy(model_path, num_actions=num_actions, num_atoms=num_atoms, device=device)
+    if source in {'local', 'rc_model'}:
+        return LocalCheckpointPolicy(model_path, num_actions=num_actions, device=device)
     if source == 'sb3':
         return SB3Policy(model_path, algorithm=algorithm, device=device)
     if source == 'pfrl':
@@ -839,7 +998,7 @@ def handle_start_training(data):
     """Start training for a game."""
     global is_training, current_game, current_session_id
     global streamer, training_thread, rainbow_agent, frame_stack
-    global current_run_mode, current_pretrained_model, pretrained_policy
+    global current_run_mode, current_pretrained_model, pretrained_policy, current_num_actions
     global active_training_sessions, viz_frame_skip, viz_target_fps, training_level
     
     logger.info(f"Received start_training event with data: {data}")
@@ -901,6 +1060,7 @@ def handle_start_training(data):
         
         # Get action space size
         num_actions = env.action_space.n
+        current_num_actions = num_actions
         
         # Create frame stacker
         frame_stack = FrameStack(num_frames=4, frame_size=(84, 84))
@@ -908,14 +1068,7 @@ def handle_start_training(data):
         device = get_device()
         
         if run_mode == 'pretrained':
-            model_info = None
-            if not pretrained_id:
-                levels = pretrained_manager.get_game_levels(game_id)
-                level_model = levels.get(training_level)
-                if level_model:
-                    pretrained_id = level_model.get('id')
-            if pretrained_id:
-                model_info = pretrained_manager.get_model(pretrained_id)
+            model_info = _resolve_pretrained_model(game_id, training_level, pretrained_id)
             if not model_info:
                 emit('error', {'message': 'Pre-trained model not found for this game'})
                 return
@@ -1160,6 +1313,46 @@ def handle_load_model(data):
         emit('log', {'message': f'Loaded: {checkpoint}', 'type': 'success'})
     except Exception as e:
         emit('error', {'message': str(e)})
+
+
+@socketio.on('set_training_level')
+def handle_set_training_level(data):
+    """Update training level selection and swap pretrained policy if running."""
+    global training_level, pretrained_policy, current_pretrained_model
+    global current_run_mode, current_game, current_num_actions
+
+    requested_level = None
+    if isinstance(data, dict):
+        requested_level = data.get('trainingLevel') or data.get('training_level')
+    training_level = _resolve_training_level(requested_level)
+
+    if not is_training or current_run_mode != 'pretrained' or not current_game:
+        socketio.emit('log', {'message': f'Training level set to {training_level}.', 'type': 'info'})
+        return
+
+    model_info = _resolve_pretrained_level(current_game, training_level)
+    if not model_info:
+        emit('error', {'message': 'No pre-trained model available for this level'})
+        return
+
+    if current_pretrained_model and model_info.get('id') == current_pretrained_model.get('id'):
+        return
+
+    num_actions = current_num_actions
+    if not num_actions:
+        game_info = game_envs.get_game_info(current_game)
+        num_actions = game_info.action_space_size if game_info else 0
+    if not num_actions:
+        emit('error', {'message': 'Unable to switch model (unknown action space)'})
+        return
+
+    try:
+        pretrained_policy = load_pretrained_policy(model_info, num_actions, get_device())
+        current_pretrained_model = model_info
+        socketio.emit('log', {'message': f'Switched to {training_level} snapshot.', 'type': 'success'})
+    except Exception as exc:
+        logger.error(f"Failed to switch pretrained model: {exc}")
+        emit('error', {'message': str(exc)})
 
 
 @socketio.on('set_training_speed')
@@ -1549,6 +1742,8 @@ def run_pretrained_loop():
 
     try:
         while is_training and local_streamer and local_policy and not training_stop_event.is_set():
+            if pretrained_policy is not local_policy and pretrained_policy is not None:
+                local_policy = pretrained_policy
             episode += 1
 
             obs, _ = local_streamer.env.reset()
@@ -1575,6 +1770,8 @@ def run_pretrained_loop():
                 session_step_count += 1
                 frame_counter += 1
 
+                if pretrained_policy is not local_policy and pretrained_policy is not None:
+                    local_policy = pretrained_policy
                 action = local_policy.select_action(state)
                 next_obs, reward, terminated, truncated, _ = local_streamer.env.step(action)
                 done = terminated or truncated

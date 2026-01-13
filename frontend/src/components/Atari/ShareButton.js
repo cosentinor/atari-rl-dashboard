@@ -145,6 +145,30 @@ function ShareButton({ sessionId, gameId, bestReward, episodes }) {
         onClose={handleClose}
         anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
         transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+        PaperProps={{
+          sx: {
+            mt: 1,
+            backgroundColor: '#0f172a',
+            border: '1px solid rgba(148, 163, 184, 0.18)',
+            boxShadow: '0 18px 40px rgba(0, 0, 0, 0.55)',
+            '& .MuiMenuItem-root': {
+              color: '#e2e8f0',
+              fontFamily,
+              fontSize: '0.95rem',
+              '&:hover': {
+                backgroundColor: 'rgba(148, 163, 184, 0.12)',
+              },
+            },
+            '& .MuiListItemIcon-root': {
+              color: '#e2e8f0',
+              minWidth: '32px',
+            },
+            '& .MuiListItemText-primary': {
+              fontFamily,
+              color: '#e2e8f0',
+            },
+          },
+        }}
         MenuListProps={{
           sx: {
             fontFamily,

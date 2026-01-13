@@ -29,13 +29,6 @@ function ControlPanel({
   onDownloadWeights,
   pretrainedModel,
   pretrainedLoading,
-  pretrainedSource,
-  pretrainedSourceOptions,
-  onPretrainedSourceChange,
-  pretrainedModelOptions,
-  selectedPretrainedModelId,
-  onPretrainedModelChange,
-  isBitdefenderSource,
   checkpointRefreshKey,
   onCheckpointsLoaded,
   trainingSpeed,
@@ -113,6 +106,10 @@ function ControlPanel({
     },
     '& .MuiSelect-select.Mui-disabled': {
       WebkitTextFillColor: 'rgba(226, 232, 240, 0.6)',
+    },
+    '& .MuiInputBase-input.Mui-disabled': {
+      WebkitTextFillColor: 'rgba(226, 232, 240, 0.6)',
+      color: 'rgba(226, 232, 240, 0.6)',
     },
     '& .MuiSelect-icon': {
       color: 'rgba(226, 232, 240, 0.7)',
@@ -332,7 +329,7 @@ function ControlPanel({
 
   const showStartFrom = selectedGame && !isPretrainedSelected;
 
-  const disableLevelControls = isTraining || !selectedGame || pretrainedLoading || !hasPretrainedModels || !isBitdefenderSource;
+  const disableLevelControls = !selectedGame || pretrainedLoading;
   const startLabel = isPretrainedSelected ? 'Play' : (resumeFromSaved ? 'Resume' : 'Start');
 
   return (
@@ -433,7 +430,7 @@ function ControlPanel({
                 </MDButton>
               ))}
             </MDBox>
-            {selectedGame && isBitdefenderSource && !hasPretrainedModels && (
+            {selectedGame && !hasPretrainedModels && (
               <MDTypography
                 variant="caption"
                 sx={{ color: 'rgba(226, 232, 240, 0.6)', display: 'block', mt: 1 }}
@@ -441,85 +438,7 @@ function ControlPanel({
                 No pre-trained models yet. Fetch weights or train to create snapshots.
               </MDTypography>
             )}
-            {selectedGame && pretrainedSource && !isBitdefenderSource && (
-              <MDTypography
-                variant="caption"
-                sx={{ color: 'rgba(226, 232, 240, 0.6)', display: 'block', mt: 1 }}
-              >
-                Levels apply to Bitdefender snapshots. Choose a model below.
-              </MDTypography>
-            )}
           </MDBox>
-
-          <MDBox>
-            <MDTypography sx={sectionLabelSx}>Model Source</MDTypography>
-            <Select
-              value={pretrainedSource || ''}
-              onChange={(e) => onPretrainedSourceChange?.(e.target.value)}
-              disabled={!selectedGame || isTraining || pretrainedLoading || !(pretrainedSourceOptions || []).length}
-              displayEmpty
-              fullWidth
-              sx={selectSx}
-              MenuProps={menuProps}
-              renderValue={(selected) => {
-                if (!selected) {
-                  return <span style={{ color: 'rgba(226, 232, 240, 0.6)', fontFamily }}>Select Source</span>;
-                }
-                const option = (pretrainedSourceOptions || []).find((opt) => opt.value === selected);
-                return option?.label || selected;
-              }}
-            >
-              {(pretrainedSourceOptions || []).map((option) => (
-                <MenuItem key={option.value} value={option.value}>
-                  {option.label}
-                </MenuItem>
-              ))}
-            </Select>
-            {selectedGame && !pretrainedLoading && !(pretrainedSourceOptions || []).length && (
-              <MDTypography
-                variant="caption"
-                sx={{ color: 'rgba(226, 232, 240, 0.6)', display: 'block', mt: 1 }}
-              >
-                No pre-trained sources available for this game yet.
-              </MDTypography>
-            )}
-          </MDBox>
-
-          {selectedGame && pretrainedSource && !isBitdefenderSource && (
-            <MDBox>
-              <MDTypography sx={sectionLabelSx}>Model</MDTypography>
-              <Select
-                value={selectedPretrainedModelId || ''}
-                onChange={(e) => onPretrainedModelChange?.(e.target.value)}
-                disabled={isTraining || pretrainedLoading || !(pretrainedModelOptions || []).length}
-                displayEmpty
-                fullWidth
-                sx={selectSx}
-                MenuProps={menuProps}
-                renderValue={(selected) => {
-                  if (!selected) {
-                    return <span style={{ color: 'rgba(226, 232, 240, 0.6)', fontFamily }}>Select Model</span>;
-                  }
-                  const option = (pretrainedModelOptions || []).find((opt) => opt.id === selected);
-                  return option?.label || selected;
-                }}
-              >
-                {(pretrainedModelOptions || []).map((option) => (
-                  <MenuItem key={option.id} value={option.id}>
-                    {option.label}
-                  </MenuItem>
-                ))}
-              </Select>
-              {!pretrainedLoading && !(pretrainedModelOptions || []).length && (
-                <MDTypography
-                  variant="caption"
-                  sx={{ color: 'rgba(226, 232, 240, 0.6)', display: 'block', mt: 1 }}
-                >
-                  No models available for this source.
-                </MDTypography>
-              )}
-            </MDBox>
-          )}
 
           <MDBox>
             <MDTypography sx={sectionLabelSx}>Training Speed</MDTypography>
