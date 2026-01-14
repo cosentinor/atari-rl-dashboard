@@ -483,8 +483,11 @@ function AtariDashboard() {
   // Start training
   const handleStart = useCallback(() => {
     if (selectedGame) {
-      const runMode = selectedPretrainedModel ? 'pretrained' : 'train';
-      const logLabel = runMode === 'pretrained' ? 'Starting pre-trained run' : 'Starting training';
+      const isLocalPretrained = ['local', 'rc_model'].includes((selectedPretrainedModel?.source || '').toLowerCase());
+      const runMode = isLocalPretrained ? 'train' : (selectedPretrainedModel ? 'pretrained' : 'train');
+      const logLabel = runMode === 'pretrained'
+        ? 'Starting pre-trained run'
+        : (isLocalPretrained ? 'Resuming training' : 'Starting training');
       addLog(`${logLabel} for ${selectedGame}...`);
       analyticsService.trackTrainingStart(selectedGame);
 
@@ -496,6 +499,9 @@ function AtariDashboard() {
 
       if (runMode === 'pretrained') {
         payload.pretrainedId = selectedPretrainedModel?.id || null;
+      } else if (isLocalPretrained && selectedPretrainedModel?.filename) {
+        payload.loadCheckpoint = selectedPretrainedModel.filename;
+        payload.resumeFromSaved = true;
       } else {
         payload.loadCheckpoint = resumeFromSaved ? (loadCheckpoint || null) : null;
         payload.resumeFromSaved = resumeFromSaved;
@@ -830,7 +836,7 @@ function AtariDashboard() {
         </MDBox>
 
         {/* Row 1: Live Game + Controls/Stats */}
-        <Grid container spacing={2} mb={2} alignItems="flex-start">
+        <Grid container spacing={2} mb={2} alignItems="stretch">
           <Grid item xs={12} lg={8}>
             <GameCanvas
               key={`${selectedGame || 'no-game'}-${sessionId || 'idle'}`}
@@ -840,7 +846,7 @@ function AtariDashboard() {
               stats={stats}
             />
           </Grid>
-          <Grid item xs={12} lg={4}>
+          <Grid item xs={12} lg={4} sx={{ height: '100%' }}>
             <Grid container spacing={2} sx={{ height: '100%' }}>
               <Grid item xs={12}>
                 <ControlPanel
@@ -870,14 +876,23 @@ function AtariDashboard() {
                 />
               </Grid>
               <Grid item xs={12}>
+                <ModelExplanation
+                  selectedGame={selectedGame}
+                  gameInfo={selectedGameInfo}
+                  trainingLevel={trainingLevel}
+                  pretrainedModel={selectedPretrainedModel}
+                  hasPretrainedModels={hasPretrainedModels}
+                />
+              </Grid>
+              <Grid item xs={12}>
                 <StatsDisplay stats={stats} />
               </Grid>
             </Grid>
           </Grid>
         </Grid>
 
-        {/* Row 2: Metrics + Snapshot/Leaderboard */}
-        <Grid container spacing={2} mb={2} alignItems="flex-start">
+        {/* Row 2: Metrics + Leaderboard */}
+        <Grid container spacing={2} mb={2} alignItems="stretch">
           <Grid item xs={12} lg={8}>
             <Card
               sx={{
@@ -923,18 +938,9 @@ function AtariDashboard() {
             </Card>
           </Grid>
 
-          <Grid item xs={12} lg={4}>
+          <Grid item xs={12} lg={4} sx={{ height: '100%' }}>
             <Grid container spacing={2} sx={{ height: '100%' }}>
-              <Grid item xs={12}>
-                <ModelExplanation
-                  selectedGame={selectedGame}
-                  gameInfo={selectedGameInfo}
-                  trainingLevel={trainingLevel}
-                  pretrainedModel={selectedPretrainedModel}
-                  hasPretrainedModels={hasPretrainedModels}
-                />
-              </Grid>
-              <Grid item xs={12}>
+              <Grid item xs={12} sx={{ height: '100%' }}>
                 <EnhancedLeaderboard currentGame={selectedGame} />
               </Grid>
             </Grid>

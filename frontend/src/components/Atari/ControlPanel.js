@@ -42,6 +42,12 @@ function ControlPanel({
   const isPretrainedSelected = Boolean(pretrainedModel);
   const fontFamily = theme.typography?.fontFamily || '"Inter", "Helvetica", "Arial", sans-serif';
 
+  const stopIfTraining = () => {
+    if (isTraining && onStop) {
+      onStop();
+    }
+  };
+
   // Fetch checkpoints when game changes
   useEffect(() => {
     if (selectedGame) {
@@ -199,11 +205,15 @@ function ControlPanel({
     fontSize: '0.9rem',
     fontWeight: 600,
     textTransform: 'none',
-    color: '#f8fafc',
-    background: 'linear-gradient(90deg, #f59e0b 0%, #f97316 100%)',
+    color: isActive ? '#f8fafc' : '#f59e0b',
+    background: isActive
+      ? 'linear-gradient(90deg, #f59e0b 0%, #f97316 100%)'
+      : 'transparent',
     borderRight: index < total - 1 ? '1px solid rgba(245, 158, 11, 0.35)' : 'none',
     '&:hover': {
-      background: 'linear-gradient(90deg, #f59e0b 0%, #f97316 100%)',
+      background: isActive
+        ? 'linear-gradient(90deg, #f59e0b 0%, #f97316 100%)'
+        : 'rgba(245, 158, 11, 0.14)',
     },
   });
 
@@ -307,6 +317,7 @@ function ControlPanel({
     : 'max';
 
   const handleStartFromChange = (event) => {
+    stopIfTraining();
     const nextValue = event.target.value;
     if (nextValue === 'fresh') {
       onResumeFromSavedChange?.(false);
@@ -325,8 +336,9 @@ function ControlPanel({
 
   const showStartFrom = selectedGame && !isPretrainedSelected;
 
-  const disableLevelControls = pretrainedLoading;
-  const startLabel = isPretrainedSelected ? 'Play' : (resumeFromSaved ? 'Resume' : 'Start');
+  const disableLevelControls = !selectedGame || pretrainedLoading;
+  const isLocalPretrained = ['local', 'rc_model'].includes((pretrainedModel?.source || '').toLowerCase());
+  const startLabel = (isPretrainedSelected && !isLocalPretrained) ? 'Play' : (resumeFromSaved || isLocalPretrained ? 'Resume' : 'Start');
 
   return (
     <Card sx={cardSx}>
@@ -342,7 +354,8 @@ function ControlPanel({
             <Select
               value={selectedGame}
               onChange={(e) => onGameChange(e.target.value)}
-              disabled={isTraining}
+              onOpen={stopIfTraining}
+              disabled={!games.length}
               displayEmpty
               fullWidth
               sx={selectSx}
@@ -368,7 +381,10 @@ function ControlPanel({
               <MDButton
                 variant="outlined"
                 size="small"
-                onClick={() => onDownloadWeights?.(selectedGame, loadCheckpoint, pretrainedModel?.id)}
+                onClick={() => {
+                  stopIfTraining();
+                  onDownloadWeights?.(selectedGame, loadCheckpoint, pretrainedModel?.id);
+                }}
                 disabled={!onDownloadWeights}
                 sx={{
                   borderColor: 'rgba(56, 189, 248, 0.6)',
@@ -392,7 +408,8 @@ function ControlPanel({
               <Select
                 value={startFromValue}
                 onChange={handleStartFromChange}
-                disabled={isTraining}
+                onOpen={stopIfTraining}
+                disabled={!selectedGame}
                 displayEmpty
                 fullWidth
                 sx={selectSx}
@@ -419,7 +436,10 @@ function ControlPanel({
                   variant="contained"
                   disableElevation
                   disabled={disableLevelControls}
-                  onClick={() => onTrainingLevelChange?.(option.value)}
+                  onClick={() => {
+                    stopIfTraining();
+                    onTrainingLevelChange?.(option.value);
+                  }}
                   sx={levelButtonSx(trainingLevel === option.value, index, trainingLevelOptions.length)}
                 >
                   {option.label}
@@ -444,7 +464,10 @@ function ControlPanel({
                   key={option.value}
                   variant="contained"
                   disableElevation
-                  onClick={() => onTrainingSpeedChange(option.value)}
+                  onClick={() => {
+                    stopIfTraining();
+                    onTrainingSpeedChange(option.value);
+                  }}
                   sx={speedButtonSx(trainingSpeed === option.value, index, speedOptions.length)}
                 >
                   {option.label}

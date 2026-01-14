@@ -11,8 +11,8 @@ import MDTypography from "components/MDTypography";
 const LEVEL_COPY = {
   low: {
     label: 'Low',
-    title: 'RC_model (local)',
-    description: 'Locally trained snapshot between 10k and 50k episodes.',
+    title: 'RC_model',
+    description: 'Trained by me on rented GPU snapshot between 10k and 50k episodes.',
   },
   medium: {
     label: 'Medium',
