@@ -32,7 +32,6 @@ import RewardDistChart from "components/Atari/Charts/RewardDistChart";
 
 // Import additional components
 import EnhancedLeaderboard from "components/Atari/EnhancedLeaderboard";
-import ChallengesPanel from "components/Atari/ChallengesPanel";
 import FeedbackWidget from "components/Atari/FeedbackWidget";
 import ComparisonView from "components/Atari/ComparisonView";
 import EmailModal from "components/Atari/EmailModal";
@@ -831,7 +830,7 @@ function AtariDashboard() {
         </MDBox>
 
         {/* Row 1: Live Game + Controls/Stats */}
-        <Grid container spacing={2} mb={2} alignItems="stretch">
+        <Grid container spacing={2} mb={2} alignItems="flex-start">
           <Grid item xs={12} lg={8}>
             <GameCanvas
               key={`${selectedGame || 'no-game'}-${sessionId || 'idle'}`}
@@ -871,23 +870,14 @@ function AtariDashboard() {
                 />
               </Grid>
               <Grid item xs={12}>
-                <ModelExplanation
-                  selectedGame={selectedGame}
-                  gameInfo={selectedGameInfo}
-                  trainingLevel={trainingLevel}
-                  pretrainedModel={selectedPretrainedModel}
-                  hasPretrainedModels={hasPretrainedModels}
-                />
-              </Grid>
-              <Grid item xs={12}>
                 <StatsDisplay stats={stats} />
               </Grid>
             </Grid>
           </Grid>
         </Grid>
 
-        {/* Row 2: Metrics + Leaderboard/Challenges */}
-        <Grid container spacing={2} mb={2} alignItems="stretch">
+        {/* Row 2: Metrics + Snapshot/Leaderboard */}
+        <Grid container spacing={2} mb={2} alignItems="flex-start">
           <Grid item xs={12} lg={8}>
             <Card
               sx={{
@@ -936,10 +926,16 @@ function AtariDashboard() {
           <Grid item xs={12} lg={4}>
             <Grid container spacing={2} sx={{ height: '100%' }}>
               <Grid item xs={12}>
-                <EnhancedLeaderboard currentGame={selectedGame} />
+                <ModelExplanation
+                  selectedGame={selectedGame}
+                  gameInfo={selectedGameInfo}
+                  trainingLevel={trainingLevel}
+                  pretrainedModel={selectedPretrainedModel}
+                  hasPretrainedModels={hasPretrainedModels}
+                />
               </Grid>
               <Grid item xs={12}>
-                <ChallengesPanel visitorId={localStorage.getItem('visitor_id')} />
+                <EnhancedLeaderboard currentGame={selectedGame} />
               </Grid>
             </Grid>
           </Grid>

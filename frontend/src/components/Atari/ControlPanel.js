@@ -199,15 +199,11 @@ function ControlPanel({
     fontSize: '0.9rem',
     fontWeight: 600,
     textTransform: 'none',
-    color: isActive ? '#f8fafc' : '#f59e0b',
-    background: isActive
-      ? 'linear-gradient(90deg, #f59e0b 0%, #f97316 100%)'
-      : 'transparent',
+    color: '#f8fafc',
+    background: 'linear-gradient(90deg, #f59e0b 0%, #f97316 100%)',
     borderRight: index < total - 1 ? '1px solid rgba(245, 158, 11, 0.35)' : 'none',
     '&:hover': {
-      background: isActive
-        ? 'linear-gradient(90deg, #f59e0b 0%, #f97316 100%)'
-        : 'rgba(245, 158, 11, 0.14)',
+      background: 'linear-gradient(90deg, #f59e0b 0%, #f97316 100%)',
     },
   });
 
@@ -329,7 +325,7 @@ function ControlPanel({
 
   const showStartFrom = selectedGame && !isPretrainedSelected;
 
-  const disableLevelControls = !selectedGame || pretrainedLoading;
+  const disableLevelControls = pretrainedLoading;
   const startLabel = isPretrainedSelected ? 'Play' : (resumeFromSaved ? 'Resume' : 'Start');
 
   return (

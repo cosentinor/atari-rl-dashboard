@@ -30,25 +30,13 @@ const SOURCE_LABELS = {
   bitdefender: 'Bitdefender',
   sb3: 'SB3 RL Zoo',
   pfrl: 'PFRL Zoo',
-  local: 'RC_model',
-  rc_model: 'RC_model',
+  local: "Riccardo's Model",
+  rc_model: "Riccardo's Model",
 };
 
 const formatNumber = (value) => {
   if (typeof value !== 'number' || Number.isNaN(value)) return '-';
   return value.toLocaleString();
-};
-
-const formatReward = (value) => {
-  if (typeof value !== 'number' || Number.isNaN(value)) return '-';
-  return value.toFixed(1);
-};
-
-const formatDate = (value) => {
-  if (!value) return '-';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '-';
-  return date.toLocaleDateString();
 };
 
 const formatAlgorithm = (value) => {
@@ -67,7 +55,6 @@ function ModelExplanation({
 }) {
   const levelInfo = LEVEL_COPY[trainingLevel] || LEVEL_COPY.medium;
   const gameLabel = gameInfo?.display_name || gameInfo?.name || selectedGame || 'Select a game';
-  const trainedEpisodes = gameInfo?.trained_episodes;
   const isPretrained = Boolean(pretrainedModel);
   const activeModel = pretrainedModel || checkpoint || null;
   const source = (pretrainedModel?.source || '').toLowerCase();
@@ -79,10 +66,11 @@ function ModelExplanation({
     ? `Pre-trained checkpoint from ${sourceLabel || 'external source'}.`
     : `${levelInfo.title}. ${levelInfo.description}`;
 
-  const progressPercent =
-    (isLocal || !isPretrained) && activeModel && typeof trainedEpisodes === 'number' && trainedEpisodes > 0
-      ? Math.min(100, Math.round((activeModel.episode / trainedEpisodes) * 100))
-      : null;
+  const sourceValue = isLocal ? "Riccardo's Model" : (sourceLabel || '-');
+  const algorithmValue = isLocal ? 'DQN Rainbow' : formatAlgorithm(activeModel?.algorithm);
+  const trainingStepsValue = isLocal ? activeModel?.episode : (activeModel?.step ?? activeModel?.episode);
+  const seedValue = isLocal ? 0 : activeModel?.seed;
+
 
   const cardSx = {
     background: 'linear-gradient(145deg, #0f1628 0%, #0b1224 100%)',
@@ -143,73 +131,30 @@ function ModelExplanation({
               {descriptionText}
             </MDTypography>
 
-            {(isPretrained && !isLocal) ? (
-              <MDBox
-                mt={2}
-                display="grid"
-                gridTemplateColumns={{ xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))' }}
-                gap={1.5}
-              >
-                <MDBox>
-                  <MDTypography sx={statLabelSx}>Source</MDTypography>
-                  <MDTypography sx={statValueSx}>{sourceLabel || '-'}</MDTypography>
-                </MDBox>
-                <MDBox>
-                  <MDTypography sx={statLabelSx}>Algorithm</MDTypography>
-                  <MDTypography sx={statValueSx}>{formatAlgorithm(activeModel.algorithm)}</MDTypography>
-                </MDBox>
-                <MDBox>
-                  <MDTypography sx={statLabelSx}>Training Steps</MDTypography>
-                  <MDTypography sx={statValueSx}>{formatNumber(activeModel.step)}</MDTypography>
-                </MDBox>
-                <MDBox>
-                  <MDTypography sx={statLabelSx}>Seed</MDTypography>
-                  <MDTypography sx={statValueSx}>{formatNumber(activeModel.seed)}</MDTypography>
-                </MDBox>
-                <MDBox>
-                  <MDTypography sx={statLabelSx}>File</MDTypography>
-                  <MDTypography sx={{ ...statValueSx, wordBreak: 'break-all' }}>
-                    {activeModel.filename || '-'}
-                  </MDTypography>
-                </MDBox>
-                <MDBox>
-                  <MDTypography sx={statLabelSx}>Format</MDTypography>
-                  <MDTypography sx={statValueSx}>{activeModel.format || '-'}</MDTypography>
-                </MDBox>
+            <MDBox
+              mt={2}
+              display="grid"
+              gridTemplateColumns={{ xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))' }}
+              gap={1.5}
+            >
+              <MDBox>
+                <MDTypography sx={statLabelSx}>Source</MDTypography>
+                <MDTypography sx={statValueSx}>{sourceValue}</MDTypography>
               </MDBox>
-            ) : (
-              <MDBox
-                mt={2}
-                display="grid"
-                gridTemplateColumns={{ xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))' }}
-                gap={1.5}
-              >
-                <MDBox>
-                  <MDTypography sx={statLabelSx}>Checkpoint</MDTypography>
-                  <MDTypography sx={{ ...statValueSx, wordBreak: 'break-all' }}>
-                    {activeModel.filename || '-'}
-                  </MDTypography>
-                </MDBox>
-                <MDBox>
-                  <MDTypography sx={statLabelSx}>Games Played</MDTypography>
-                  <MDTypography sx={statValueSx}>{formatNumber(activeModel.episode)}</MDTypography>
-                </MDBox>
-                <MDBox>
-                  <MDTypography sx={statLabelSx}>Reward</MDTypography>
-                  <MDTypography sx={statValueSx}>{formatReward(activeModel.reward)}</MDTypography>
-                </MDBox>
-                <MDBox>
-                  <MDTypography sx={statLabelSx}>Last Updated</MDTypography>
-                  <MDTypography sx={statValueSx}>{formatDate(activeModel.timestamp)}</MDTypography>
-                </MDBox>
+              <MDBox>
+                <MDTypography sx={statLabelSx}>Algorithm</MDTypography>
+                <MDTypography sx={statValueSx}>{algorithmValue}</MDTypography>
               </MDBox>
-            )}
+              <MDBox>
+                <MDTypography sx={statLabelSx}>Training Steps</MDTypography>
+                <MDTypography sx={statValueSx}>{formatNumber(trainingStepsValue)}</MDTypography>
+              </MDBox>
+              <MDBox>
+                <MDTypography sx={statLabelSx}>Seed</MDTypography>
+                <MDTypography sx={statValueSx}>{formatNumber(seedValue)}</MDTypography>
+              </MDBox>
+            </MDBox>
 
-            {progressPercent !== null && (
-              <MDTypography variant="caption" sx={{ color: 'rgba(226, 232, 240, 0.7)', mt: 2 }}>
-                Training progress: about {progressPercent}% of the last full run.
-              </MDTypography>
-            )}
           </>
         )}
       </MDBox>

@@ -1047,6 +1047,10 @@ def handle_start_training(data):
         emit('error', {'message': f'Unknown game: {raw_game_id}'})
         return
 
+    if run_mode == 'train' and model_manager.has_checkpoints(game_id):
+        resume_from_saved = True
+        load_checkpoint = None
+
     viz_settings = get_viz_settings(game_id)
     viz_frame_skip = viz_settings['frame_skip']
     viz_target_fps = viz_settings['target_fps']

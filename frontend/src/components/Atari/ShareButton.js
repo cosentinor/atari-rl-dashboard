@@ -134,6 +134,12 @@ function ShareButton({ sessionId, gameId, bestReward, episodes }) {
         size="small"
         onClick={handleClick}
         iconOnly={false}
+        sx={{
+          fontFamily,
+          textTransform: "none",
+          fontWeight: 600,
+          letterSpacing: "0.02em",
+        }}
       >
         <Icon sx={{ mr: 1 }}>share</Icon>
         Share
@@ -167,6 +173,10 @@ function ShareButton({ sessionId, gameId, bestReward, episodes }) {
               fontFamily,
               color: '#e2e8f0',
             },
+            '& .MuiTypography-root': {
+              fontFamily,
+              color: '#e2e8f0',
+            },
           },
         }}
         MenuListProps={{
@@ -185,42 +195,60 @@ function ShareButton({ sessionId, gameId, bestReward, episodes }) {
           <ListItemIcon>
             <Icon>chat</Icon>
           </ListItemIcon>
-          <ListItemText>Twitter</ListItemText>
+          <ListItemText
+            primary="Twitter"
+            primaryTypographyProps={{ fontFamily, fontSize: "0.95rem" }}
+          />
         </MenuItem>
 
         <MenuItem onClick={() => handleShare('facebook')}>
           <ListItemIcon>
             <Icon>facebook</Icon>
           </ListItemIcon>
-          <ListItemText>Facebook</ListItemText>
+          <ListItemText
+            primary="Facebook"
+            primaryTypographyProps={{ fontFamily, fontSize: "0.95rem" }}
+          />
         </MenuItem>
 
         <MenuItem onClick={() => handleShare('linkedin')}>
           <ListItemIcon>
             <Icon>business</Icon>
           </ListItemIcon>
-          <ListItemText>LinkedIn</ListItemText>
+          <ListItemText
+            primary="LinkedIn"
+            primaryTypographyProps={{ fontFamily, fontSize: "0.95rem" }}
+          />
         </MenuItem>
 
         <MenuItem onClick={() => handleShare('reddit')}>
           <ListItemIcon>
             <Icon>forum</Icon>
           </ListItemIcon>
-          <ListItemText>Reddit</ListItemText>
+          <ListItemText
+            primary="Reddit"
+            primaryTypographyProps={{ fontFamily, fontSize: "0.95rem" }}
+          />
         </MenuItem>
 
         <MenuItem onClick={handleCopyLink}>
           <ListItemIcon>
             <Icon>link</Icon>
           </ListItemIcon>
-          <ListItemText>Copy Link</ListItemText>
+          <ListItemText
+            primary="Copy Link"
+            primaryTypographyProps={{ fontFamily, fontSize: "0.95rem" }}
+          />
         </MenuItem>
 
         <MenuItem onClick={handleDownloadCard}>
           <ListItemIcon>
             <Icon>download</Icon>
           </ListItemIcon>
-          <ListItemText>Download Card</ListItemText>
+          <ListItemText
+            primary="Download Card"
+            primaryTypographyProps={{ fontFamily, fontSize: "0.95rem" }}
+          />
         </MenuItem>
       </Menu>
 
