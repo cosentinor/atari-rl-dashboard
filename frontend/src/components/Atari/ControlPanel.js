@@ -215,6 +215,13 @@ function ControlPanel({
         ? 'linear-gradient(90deg, #f59e0b 0%, #f97316 100%)'
         : 'rgba(245, 158, 11, 0.14)',
     },
+    '&.Mui-disabled': {
+      color: isActive ? '#f8fafc' : '#f59e0b',
+      background: isActive
+        ? 'linear-gradient(90deg, #f59e0b 0%, #f97316 100%)'
+        : 'transparent',
+      opacity: 1,
+    },
   });
 
 
@@ -336,9 +343,9 @@ function ControlPanel({
 
   const showStartFrom = selectedGame && !isPretrainedSelected;
 
-  const disableLevelControls = !selectedGame || pretrainedLoading;
+  const disableLevelControls = pretrainedLoading;
   const isLocalPretrained = ['local', 'rc_model'].includes((pretrainedModel?.source || '').toLowerCase());
-  const startLabel = (isPretrainedSelected && !isLocalPretrained) ? 'Play' : (resumeFromSaved || isLocalPretrained ? 'Resume' : 'Start');
+  const startLabel = (resumeFromSaved || isLocalPretrained) ? 'Resume' : 'Start';
 
   return (
     <Card sx={cardSx}>
@@ -514,7 +521,7 @@ function ControlPanel({
             <MDButton
               variant="contained"
               onClick={onSave}
-              disabled={!isTraining || isPretrainedSelected}
+              disabled={!isTraining}
               sx={{
                 ...actionButtonBaseSx,
                 background: 'linear-gradient(180deg, #1f2937 0%, #111827 100%)',

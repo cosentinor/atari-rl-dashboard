@@ -77,7 +77,6 @@ function ModelExplanation({
     border: '1px solid rgba(148, 163, 184, 0.18)',
     boxShadow: '0 16px 36px rgba(0, 0, 0, 0.45)',
     borderRadius: '16px',
-    height: '100%',
   };
 
   const statLabelSx = {

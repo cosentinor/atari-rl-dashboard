@@ -139,7 +139,6 @@ function GameCanvas({ isTraining, sessionId, selectedGame, stats }) {
   return (
     <Card
       sx={{
-        height: '100%',
         background: 'linear-gradient(145deg, #0f1628 0%, #0b1224 100%)',
         border: '1px solid rgba(148, 163, 184, 0.18)',
         boxShadow: '0 16px 36px rgba(0, 0, 0, 0.45)',
@@ -148,7 +147,7 @@ function GameCanvas({ isTraining, sessionId, selectedGame, stats }) {
         flexDirection: 'column',
       }}
     >
-      <MDBox p={2} sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      <MDBox p={2} sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
         <MDBox display="flex" justifyContent="space-between" alignItems="center" mb={1}>
           <MDTypography variant="h6" fontWeight="medium" display="flex" alignItems="center" gap={0.75}>
             <Icon sx={{ fontSize: '1.3rem !important', color: '#0ea5e9' }}>sports_esports</Icon>
@@ -181,8 +180,9 @@ function GameCanvas({ isTraining, sessionId, selectedGame, stats }) {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            flex: 1,
-            minHeight: { xs: '260px', md: '360px' },
+            width: '100%',
+            height: { xs: '240px', sm: '300px', md: '340px', lg: '380px' },
+            maxHeight: '420px',
           }}
         >
           <canvas 
@@ -192,8 +192,7 @@ function GameCanvas({ isTraining, sessionId, selectedGame, stats }) {
             style={{
               display: 'block',
               width: 'auto',
-              height: '100%',
-              maxWidth: '100%',
+                    maxWidth: '100%',
               maxHeight: '100%',
               imageRendering: 'pixelated',
             }}

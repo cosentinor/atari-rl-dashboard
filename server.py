@@ -4,9 +4,11 @@ Flask-SocketIO server for real-time game streaming and training.
 """
 
 import logging
+import gzip
 import os
 import threading
 import time
+import torch
 from pathlib import Path
 from flask import Flask, send_from_directory, jsonify, request, send_file
 from flask_socketio import SocketIO, emit
@@ -954,6 +956,8 @@ def serialize_pretrained_model(model_info: dict | None) -> dict | None:
         'reward': model_info.get('reward'),
         'timestamp': model_info.get('timestamp'),
     }
+
+
 def load_pretrained_policy(model_info: dict, num_actions: int, device):
     """Create a policy instance for a pretrained model entry."""
     source = (model_info.get('source') or '').lower()
@@ -973,6 +977,106 @@ def load_pretrained_policy(model_info: dict, num_actions: int, device):
         return PFRLPolicy(model_path, algorithm=algorithm, num_actions=num_actions, device=device)
 
     raise ValueError(f"Unsupported pretrained source: {source}")
+
+
+
+
+def _resolve_pretrained_path(model_info: dict) -> Path | None:
+    raw_path = model_info.get('path') or model_info.get('filename')
+    if not raw_path:
+        return None
+    model_path = Path(raw_path)
+    if not model_path.is_absolute():
+        model_path = (pretrained_manager.base_dir / model_path).resolve()
+    return model_path
+
+
+def _initialize_agent_from_bitdefender(agent: RainbowAgent, model_info: dict) -> int:
+    model_path = _resolve_pretrained_path(model_info)
+    if not model_path or not model_path.exists():
+        raise FileNotFoundError(f"Bitdefender checkpoint not found: {model_path}")
+
+    with gzip.open(model_path, "rb") as handle:
+        payload = torch.load(handle, map_location=agent.device)
+
+    state = payload.get("estimator_state", payload)
+    required_keys = [
+        "_AtariNet__features.0.weight",
+        "_AtariNet__features.0.bias",
+        "_AtariNet__features.2.weight",
+        "_AtariNet__features.2.bias",
+        "_AtariNet__features.4.weight",
+        "_AtariNet__features.4.bias",
+        "_AtariNet__head.0.weight",
+        "_AtariNet__head.0.bias",
+        "_AtariNet__head.2.weight",
+        "_AtariNet__head.2.bias",
+    ]
+    missing = [key for key in required_keys if key not in state]
+    if missing:
+        raise KeyError(f"Bitdefender checkpoint missing keys: {missing}")
+
+    conv0_w = state["_AtariNet__features.0.weight"]
+    conv0_b = state["_AtariNet__features.0.bias"]
+    conv1_w = state["_AtariNet__features.2.weight"]
+    conv1_b = state["_AtariNet__features.2.bias"]
+    conv2_w = state["_AtariNet__features.4.weight"]
+    conv2_b = state["_AtariNet__features.4.bias"]
+    fc1_w = state["_AtariNet__head.0.weight"]
+    fc1_b = state["_AtariNet__head.0.bias"]
+    fc2_w = state["_AtariNet__head.2.weight"]
+    fc2_b = state["_AtariNet__head.2.bias"]
+
+    if fc2_w.shape[0] != agent.num_actions:
+        raise ValueError(
+            f"Bitdefender actions ({fc2_w.shape[0]}) do not match agent ({agent.num_actions})"
+        )
+
+    def apply_to_net(net) -> None:
+        device = net.value_hidden.weight_mu.device
+        conv0_w_d = conv0_w.to(device)
+        conv0_b_d = conv0_b.to(device)
+        conv1_w_d = conv1_w.to(device)
+        conv1_b_d = conv1_b.to(device)
+        conv2_w_d = conv2_w.to(device)
+        conv2_b_d = conv2_b.to(device)
+        fc1_w_d = fc1_w.to(device)
+        fc1_b_d = fc1_b.to(device)
+        fc2_w_d = fc2_w.to(device)
+        fc2_b_d = fc2_b.to(device)
+
+        with torch.no_grad():
+            net.conv[0].weight.copy_(conv0_w_d)
+            net.conv[0].bias.copy_(conv0_b_d)
+            net.conv[2].weight.copy_(conv1_w_d)
+            net.conv[2].bias.copy_(conv1_b_d)
+            net.conv[4].weight.copy_(conv2_w_d)
+            net.conv[4].bias.copy_(conv2_b_d)
+
+            net.value_hidden.weight_mu.copy_(fc1_w_d)
+            net.value_hidden.bias_mu.copy_(fc1_b_d)
+            net.advantage_hidden.weight_mu.copy_(fc1_w_d)
+            net.advantage_hidden.bias_mu.copy_(fc1_b_d)
+
+            support = net.support.detach().to(device)
+            num_atoms = int(support.numel())
+            weight_mu = fc2_w_d.unsqueeze(1) * support.view(1, num_atoms, 1)
+            weight_mu = weight_mu.reshape(agent.num_actions * num_atoms, fc2_w_d.shape[1])
+            bias_mu = fc2_b_d.unsqueeze(1) * support.view(1, num_atoms)
+            bias_mu = bias_mu.reshape(agent.num_actions * num_atoms)
+            net.advantage_out.weight_mu.copy_(weight_mu)
+            net.advantage_out.bias_mu.copy_(bias_mu)
+            net.value_out.weight_mu.zero_()
+            net.value_out.bias_mu.zero_()
+
+    apply_to_net(agent.online_net)
+    apply_to_net(agent.target_net)
+
+    step = payload.get("step") or model_info.get("step") or 0
+    if step:
+        agent.step_count = int(step)
+        agent.episode_count = int(model_info.get("episode") or step)
+    return int(step) if step else 0
 
 
 
@@ -1047,9 +1151,22 @@ def handle_start_training(data):
         emit('error', {'message': f'Unknown game: {raw_game_id}'})
         return
 
-    if run_mode == 'train' and model_manager.has_checkpoints(game_id):
-        resume_from_saved = True
-        load_checkpoint = None
+    has_local_checkpoints = model_manager.has_checkpoints(game_id)
+    if resume_from_saved is None:
+        resume_from_saved = has_local_checkpoints
+
+    warm_start_model = None
+    if run_mode == 'train' and pretrained_id and not resume_from_saved:
+        warm_start_model = _resolve_pretrained_model(game_id, training_level, pretrained_id)
+        if warm_start_model:
+            if warm_start_model.get('game_id') and warm_start_model.get('game_id') != game_id:
+                emit('error', {'message': 'Pre-trained model does not match selected game'})
+                return
+            warm_source = (warm_start_model.get('source') or '').lower()
+            if warm_source in {'local', 'rc_model'}:
+                load_checkpoint = warm_start_model.get('filename')
+                resume_from_saved = True
+                warm_start_model = None
 
     viz_settings = get_viz_settings(game_id)
     viz_frame_skip = viz_settings['frame_skip']
@@ -1122,10 +1239,21 @@ def handle_start_training(data):
                 store_uint8=store_uint8
             )
         
-            # Decide whether to resume from saved weights
-            if resume_from_saved is None:
-                resume_from_saved = model_manager.has_checkpoints(game_id)
-        
+            if warm_start_model and (warm_start_model.get('source') or '').lower() == 'bitdefender':
+                try:
+                    warm_steps = _initialize_agent_from_bitdefender(rainbow_agent, warm_start_model)
+                    emit('log', {
+                        'message': f'Loaded Bitdefender weights ({warm_steps} steps)',
+                        'type': 'success'
+                    })
+                except Exception as exc:
+                    warm_start_model = None
+                    logger.warning(f'Bitdefender warm start failed: {exc}')
+                    emit('log', {
+                        'message': 'Bitdefender warm start failed; starting fresh',
+                        'type': 'warning'
+                    })
+
             # Load checkpoint if specified or if resume is enabled
             if resume_from_saved:
                 checkpoint_to_load = load_checkpoint or model_manager.get_latest_checkpoint_name(game_id)
