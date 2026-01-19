@@ -1,9 +1,9 @@
 /**
- * Atari RL Training Dashboard
+ * DQN Dashboard Dashboard
  * Full-featured layout with all components
  */
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import Grid from "@mui/material/Grid";
 import Card from "@mui/material/Card";
 import Icon from "@mui/material/Icon";
@@ -34,7 +34,6 @@ import RewardDistChart from "components/Atari/Charts/RewardDistChart";
 import EnhancedLeaderboard from "components/Atari/EnhancedLeaderboard";
 import FeedbackWidget from "components/Atari/FeedbackWidget";
 import ComparisonView from "components/Atari/ComparisonView";
-import EmailModal from "components/Atari/EmailModal";
 
 // Import services
 import socketService from "services/socket.service";
@@ -149,6 +148,8 @@ function AtariDashboard() {
   const [pretrainedLoading, setPretrainedLoading] = useState(false);
   const [trainingSpeed, setTrainingSpeed] = useState('1x');
   const [trainingLevel, setTrainingLevel] = useState('medium');
+  const pendingRestartRef = useRef(null);
+  const handleStartRef = useRef(null);
   
   // Stats
   const [stats, setStats] = useState({
@@ -158,7 +159,8 @@ function AtariDashboard() {
     loss: 0,
     qValue: 0,
     fps: 0,
-    steps: 0
+    steps: 0,
+    totalSteps: 0
   });
   
   // Chart data
@@ -174,7 +176,6 @@ function AtariDashboard() {
   
   // Modals
   const [showComparison, setShowComparison] = useState(false);
-  const [showEmailModal, setShowEmailModal] = useState(false);
   const [podcastLogoError, setPodcastLogoError] = useState(false);
   
   // Chart tabs
@@ -241,7 +242,8 @@ function AtariDashboard() {
         loss: data.loss?.toFixed(4) || prev.loss,
         qValue: data.qValue?.toFixed(2) || prev.qValue,
         fps: data.fps || prev.fps,
-        steps: data.step || prev.steps
+        steps: data.step || prev.steps,
+        totalSteps: data.totalSteps ?? prev.totalSteps
       }));
     });
     
@@ -265,6 +267,31 @@ function AtariDashboard() {
       setIsTraining(false);
       setCheckpointRefreshKey((prev) => prev + 1);
       addLog('Training stopped');
+
+      if (pendingRestartRef.current) {
+        const reason = pendingRestartRef.current;
+        pendingRestartRef.current = null;
+        if (window.clearCanvas) {
+          window.clearCanvas();
+        }
+        setStats({
+          episode: 0,
+          reward: 0,
+          bestReward: 0,
+          loss: 0,
+          qValue: 0,
+          fps: 0,
+          steps: 0,
+          totalSteps: 0
+        });
+        setEpisodes([]);
+        setActionDist({});
+        setRewardDist({ bins: [], counts: [] });
+        addLog(`Restarting training after ${reason} change...`, 'info');
+        setTimeout(() => {
+          handleStartRef.current?.();
+        }, 200);
+      }
     });
 
     socket.on(config.events.status, (data) => {
@@ -301,14 +328,6 @@ function AtariDashboard() {
 
       if (data.actionDistribution) {
         setActionDist(data.actionDistribution);
-      }
-      
-      // Show email modal after first episode
-      if (data.episode === 1) {
-        const emailStatus = localStorage.getItem('email_collected');
-        if (!emailStatus) {
-          setShowEmailModal(true);
-        }
       }
     });
     
@@ -357,6 +376,7 @@ function AtariDashboard() {
       socketService.emit(config.events.stopTraining);
     }
 
+    pendingRestartRef.current = null;
     setSelectedGame(newGame);
     setLoadCheckpoint('');
     setResumeFromSaved(false);
@@ -370,7 +390,8 @@ function AtariDashboard() {
       loss: 0,
       qValue: 0,
       fps: 0,
-      steps: 0
+      steps: 0,
+      totalSteps: 0
     });
     
     setEpisodes([]);
@@ -453,8 +474,11 @@ function AtariDashboard() {
     }
 
     if (selectedPretrainedModel && !isLocalPretrained) {
-      if (Array.isArray(availableCheckpoints) && availableCheckpoints.length > 0) {
-        const sorted = [...availableCheckpoints].sort(
+      const matching = Array.isArray(availableCheckpoints)
+        ? availableCheckpoints.filter((cp) => cp.training_level === trainingLevel)
+        : [];
+      if (matching.length > 0) {
+        const sorted = [...matching].sort(
           (a, b) => (a.episode ?? 0) - (b.episode ?? 0)
         );
         const latest = sorted[sorted.length - 1];
@@ -483,28 +507,6 @@ function AtariDashboard() {
     setResumeFromSaved(false);
     setLoadCheckpoint('');
   }, [selectedPretrainedModel, availableCheckpoints]);
-
-  const handleDownloadWeights = useCallback((gameId, checkpointName, pretrainedId) => {
-    if (!gameId) return;
-    const baseUrl = config.API_BASE_URL || '';
-
-    if (pretrainedId) {
-      const url = `${baseUrl}/api/pretrained/download?id=${encodeURIComponent(pretrainedId)}`;
-      window.open(url, '_blank', 'noopener,noreferrer');
-      return;
-    }
-
-    const gameKey = gameId.replace(/\//g, '_');
-    let url = `${baseUrl}/api/models/${gameKey}/download`;
-
-    if (checkpointName) {
-      url += `?mode=checkpoint&checkpoint=${encodeURIComponent(checkpointName)}`;
-    } else {
-      url += '?mode=latest';
-    }
-
-    window.open(url, '_blank', 'noopener,noreferrer');
-  }, []);
   
   // Start training
   const handleStart = useCallback(() => {
@@ -542,6 +544,11 @@ function AtariDashboard() {
       socketService.emit(config.events.startTraining, payload);
     }
   }, [selectedGame, loadCheckpoint, resumeFromSaved, trainingLevel, selectedPretrainedModel, addLog]);
+
+  useEffect(() => {
+    handleStartRef.current = handleStart;
+  }, [handleStart]);
+
   
   // Stop training
   const handleStop = useCallback(() => {
@@ -560,14 +567,15 @@ function AtariDashboard() {
       loss: 0,
       qValue: 0,
       fps: 0,
-      steps: 0
+      steps: 0,
+      totalSteps: 0
     });
     setEpisodes([]);
     setActionDist({});
     setRewardDist({ bins: [], counts: [] });
     setSessionId(null);
   }, [addLog]);
-  
+
   // Save model
   const handleSave = useCallback(() => {
     addLog('Saving model...');
@@ -592,15 +600,29 @@ function AtariDashboard() {
         game: selectedGame,
       });
     }
+    if (isTraining) {
+      pendingRestartRef.current = 'training level';
+      addLog('Saving and restarting to apply the new training level...', 'info');
+      handleSave();
+      handleStop();
+      return;
+    }
     addLog(`Training level set to ${level}`);
-  }, [addLog, selectedGame]);
+  }, [addLog, selectedGame, isTraining, handleSave, handleStop]);
 
   // Training speed change
   const handleTrainingSpeedChange = useCallback((speed) => {
     socketService.emit(config.events.setTrainingSpeed, { speed });
     analyticsService.trackSpeedChange(speed);
+    if (isTraining) {
+      pendingRestartRef.current = 'training speed';
+      addLog('Saving and restarting to apply the new training speed...', 'info');
+      handleSave();
+      handleStop();
+      return;
+    }
     addLog(`Speed changed to ${speed}`);
-  }, [addLog]);
+  }, [addLog, isTraining, handleSave, handleStop]);
   
   // Autosave every 90 seconds during training
   useEffect(() => {
@@ -696,7 +718,7 @@ function AtariDashboard() {
                       lineHeight: 1.1,
                     }}
                   >
-                    Atari RL Training
+                    DQN Dashboard
                   </MDTypography>
                   <MDBox display="flex" alignItems="center" gap={1}>
                     <MDTypography
@@ -707,10 +729,10 @@ function AtariDashboard() {
                         borderBottom: '1px dotted rgba(148, 163, 184, 0.5)',
                       }}
                     >
-                      Rainbow DQN Dashboard
+                      Rainbow + DQN Modern Atari Models
                     </MDTypography>
                     <Tooltip
-                      title="Monitor training, metrics, and controls for Rainbow DQN agents."
+                      title="Explore DQN Rainbow (local) and DQN Modern (Bitdefender) training runs."
                       arrow
                       componentsProps={{
                         tooltip: {
@@ -894,7 +916,6 @@ function AtariDashboard() {
                   resumeFromSaved={resumeFromSaved}
                   onLoadCheckpointChange={setLoadCheckpoint}
                   onResumeFromSavedChange={setResumeFromSaved}
-                  onDownloadWeights={handleDownloadWeights}
                   pretrainedModel={selectedPretrainedModel}
                   pretrainedLoading={pretrainedLoading}
                   checkpointRefreshKey={checkpointRefreshKey}
@@ -977,20 +998,6 @@ function AtariDashboard() {
           </Grid>
         </Grid>
         
-        {/* Compare Models Button */}
-        {selectedGame && (
-          <MDBox mb={2}>
-            <MDButton
-              variant="outlined"
-              color="info"
-              onClick={() => setShowComparison(true)}
-              startIcon={<Icon>compare_arrows</Icon>}
-            >
-              Compare Models
-            </MDButton>
-          </MDBox>
-        )}
-
         {/* Activity Log - Collapsible at Bottom */}
         <MDBox mt={3}>
           <Card
@@ -1096,10 +1103,6 @@ function AtariDashboard() {
       />
       
       {/* Email Collection Modal */}
-      <EmailModal
-        open={showEmailModal}
-        onClose={() => setShowEmailModal(false)}
-      />
       
       <Footer />
     </DashboardLayout>

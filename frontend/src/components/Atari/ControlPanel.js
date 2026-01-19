@@ -26,7 +26,6 @@ function ControlPanel({
   resumeFromSaved,
   onLoadCheckpointChange,
   onResumeFromSavedChange,
-  onDownloadWeights,
   pretrainedModel,
   pretrainedLoading,
   checkpointRefreshKey,
@@ -79,8 +78,6 @@ function ControlPanel({
     { value: 'medium', label: 'Medium' },
     { value: 'high', label: 'High' },
   ];
-
-  const canDownloadWeights = Boolean(pretrainedModel?.id) || checkpoints.length > 0;
 
   const cardSx = {
     background: 'linear-gradient(145deg, #0f1628 0%, #0b1224 100%)',
@@ -382,32 +379,6 @@ function ControlPanel({
               ))}
             </Select>
           </MDBox>
-
-          {selectedGame && canDownloadWeights && (
-            <MDBox>
-              <MDButton
-                variant="outlined"
-                size="small"
-                onClick={() => {
-                  stopIfTraining();
-                  onDownloadWeights?.(selectedGame, loadCheckpoint, pretrainedModel?.id);
-                }}
-                disabled={!onDownloadWeights}
-                sx={{
-                  borderColor: 'rgba(56, 189, 248, 0.6)',
-                  color: '#e2e8f0',
-                  textTransform: 'none',
-                  '&:hover': {
-                    borderColor: 'rgba(56, 189, 248, 0.9)',
-                    backgroundColor: 'rgba(14, 165, 233, 0.12)',
-                  },
-                }}
-              >
-                <Icon sx={{ mr: 0.5 }}>download</Icon>
-                Download Weights
-              </MDButton>
-            </MDBox>
-          )}
 
           {showStartFrom && (
             <MDBox>

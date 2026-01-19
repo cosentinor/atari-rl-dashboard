@@ -17,12 +17,12 @@ const LEVEL_COPY = {
   medium: {
     label: 'Medium',
     title: 'Bitdefender 10M steps',
-    description: 'Bitdefender DQN snapshot trained for roughly 10M steps.',
+    description: 'DQN Modern checkpoint trained for roughly 10M environment steps.',
   },
   high: {
     label: 'High',
     title: 'Bitdefender 50M steps',
-    description: 'Bitdefender DQN snapshot trained for roughly 50M steps.',
+    description: 'DQN Modern checkpoint trained for roughly 50M environment steps.',
   },
 };
 
@@ -42,7 +42,10 @@ const formatNumber = (value) => {
 const formatAlgorithm = (value) => {
   if (!value) return '-';
   if (value === 'RC_model') return value;
-  return value.toUpperCase();
+  const normalized = value.replace(/_/g, ' ').toLowerCase();
+  if (normalized === 'dqn modern') return 'DQN Modern';
+  if (normalized === 'dqn') return 'DQN';
+  return normalized.replace(/\b\w/g, (c) => c.toUpperCase());
 };
 
 function ModelExplanation({
@@ -68,7 +71,7 @@ function ModelExplanation({
 
   const sourceValue = isLocal ? "Riccardo's Model" : (sourceLabel || '-');
   const algorithmValue = isLocal ? 'DQN Rainbow' : formatAlgorithm(activeModel?.algorithm);
-  const trainingStepsValue = isLocal ? activeModel?.episode : (activeModel?.step ?? activeModel?.episode);
+  const trainingStepsValue = activeModel?.step ?? activeModel?.episode;
   const seedValue = isLocal ? 0 : activeModel?.seed;
 
 

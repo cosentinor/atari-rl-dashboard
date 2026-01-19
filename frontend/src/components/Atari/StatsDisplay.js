@@ -10,16 +10,45 @@ import Icon from "@mui/material/Icon";
 import MDBox from "components/MDBox";
 import MDTypography from "components/MDTypography";
 
+
+const formatNumber = (value) => {
+  if (value === null || value === undefined) return '0';
+  let numeric = value;
+  if (typeof numeric === 'string' && numeric.trim() !== '') {
+    const parsed = Number(numeric);
+    if (Number.isFinite(parsed)) numeric = parsed;
+  }
+  if (typeof numeric !== 'number' || Number.isNaN(numeric)) return String(value);
+  return Math.floor(numeric).toLocaleString('en-US');
+};
+
+const getValueFontSize = (text) => {
+  const length = String(text).length;
+  if (length <= 7) return '1.1rem';
+  if (length <= 9) return '1rem';
+  if (length <= 11) return '0.92rem';
+  return '0.85rem';
+};
+
 function StatsDisplay({ stats }) {
+  const stepsValue = formatNumber(stats.totalSteps || 0);
+  const episodeValue = formatNumber(stats.episode || 0);
+  const stepsTooltip = `Total environment steps completed. Episodes: ${episodeValue}. This matches the checkpoint step count shown in the model snapshot.`;
   const statCards = [
     {
-      key: 'episode',
-      title: 'Episode',
-      value: stats.episode || 0,
+      key: 'steps',
+      title: 'Training Steps',
+      value: stepsValue,
+      valueSx: {
+        whiteSpace: 'nowrap',
+        fontVariantNumeric: 'tabular-nums',
+        letterSpacing: '-0.02em',
+        fontSize: getValueFontSize(stepsValue),
+      },
       icon: 'sports_esports',
       color: '#f59e0b',
-      tooltip: 'How many complete games the AI has played. Each episode runs from start to game over.',
-      subtitle: 'Current game'
+      tooltip: stepsTooltip,
+      subtitle: null
     },
     {
       key: 'reward',
@@ -140,17 +169,24 @@ function StatsDisplay({ stats }) {
               <MDTypography
                 variant="h6"
                 fontWeight="bold"
-                sx={{ color: stat.color, lineHeight: 1.05, fontSize: '1.1rem' }}
+                sx={{
+                  color: stat.color,
+                  lineHeight: 1.05,
+                  fontSize: '1.1rem',
+                  ...(stat.valueSx || {}),
+                }}
               >
                 {stat.value}
               </MDTypography>
-              <MDTypography
-                variant="caption"
-                color="text"
-                sx={{ opacity: 0.6, fontSize: '0.7rem', whiteSpace: 'nowrap' }}
-              >
-                {stat.subtitle}
-              </MDTypography>
+              {stat.subtitle && (
+                <MDTypography
+                  variant="caption"
+                  color="text"
+                  sx={{ opacity: 0.6, fontSize: '0.7rem', whiteSpace: 'nowrap' }}
+                >
+                  {stat.subtitle}
+                </MDTypography>
+              )}
             </MDBox>
           ))}
         </MDBox>

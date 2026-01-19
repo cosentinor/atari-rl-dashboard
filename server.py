@@ -117,6 +117,8 @@ current_run_mode = "train"
 current_pretrained_model = None
 pretrained_policy = None
 current_num_actions = None
+current_pretrained_origin = None
+current_env_steps = 0
 
 # Watch mode state
 watch_mode_active = False
@@ -205,6 +207,25 @@ def _local_model_id(game_id: str, checkpoint_name: str) -> str:
     return f"{LOCAL_MODEL_ID_PREFIX}:{game_id}:{checkpoint_name}"
 
 
+
+
+def _extract_local_step_count(path: str | Path) -> int | None:
+    try:
+        payload = torch.load(path, map_location='cpu', weights_only=False)
+    except Exception:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    metadata = payload.get('metadata') or {}
+    if isinstance(metadata, dict):
+        env_steps = metadata.get('env_steps')
+        if isinstance(env_steps, int):
+            return env_steps
+    step = payload.get('step_count')
+    return int(step) if isinstance(step, int) else None
+
+
+
 def _parse_local_model_id(model_id: str):
     if not model_id:
         return None
@@ -220,6 +241,7 @@ def _parse_local_model_id(model_id: str):
 
 def _build_local_model_info(game_id: str, checkpoint: dict, path: str) -> dict:
     game_label = _format_game_label(game_id)
+    step_count = _extract_local_step_count(path)
     return {
         "id": _local_model_id(game_id, checkpoint.get("filename")),
         "source": LOCAL_MODEL_SOURCE,
@@ -227,7 +249,7 @@ def _build_local_model_info(game_id: str, checkpoint: dict, path: str) -> dict:
         "game": game_label,
         "game_id": game_id,
         "seed": None,
-        "step": None,
+        "step": step_count,
         "level": "low",
         "filename": checkpoint.get("filename"),
         "format": "pt",
@@ -258,6 +280,48 @@ def _resolve_local_checkpoint(game_id: str) -> dict | None:
         return None
     return _build_local_model_info(game_id, checkpoint, path)
 
+
+
+
+def _load_checkpoint_metadata(path: str | Path) -> dict:
+    try:
+        payload = torch.load(path, map_location='cpu', weights_only=False)
+    except Exception:
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    metadata = payload.get('metadata') or {}
+    return metadata if isinstance(metadata, dict) else {}
+
+
+def _select_checkpoint_for_level(game_id: str, level: str) -> str | None:
+    checkpoints = model_manager.get_available_checkpoints(game_id)
+    if not checkpoints:
+        return None
+    for checkpoint in checkpoints:
+        filename = checkpoint.get('filename')
+        if not filename:
+            continue
+        path = model_manager.resolve_checkpoint_path(game_id, filename)
+        if not path:
+            continue
+        metadata = _load_checkpoint_metadata(path)
+        if metadata.get('training_level') == level:
+            return filename
+    return None
+
+
+def _build_checkpoint_metadata(env_steps: int | None = None) -> dict:
+    metadata = {
+        'training_level': training_level,
+    }
+    if current_pretrained_origin:
+        metadata['pretrained_origin'] = current_pretrained_origin
+    if current_session_id:
+        metadata['session_id'] = current_session_id
+    if env_steps is not None:
+        metadata['env_steps'] = env_steps
+    return metadata
 
 def _resolve_local_model_by_id(model_id: str) -> dict | None:
     parsed = _parse_local_model_id(model_id)
@@ -436,9 +500,22 @@ def get_game_models(game_id):
     """Get checkpoints for a specific game."""
     # Handle URL encoding
     game_id = game_id.replace('_', '/')
+    checkpoints = model_manager.get_available_checkpoints(game_id)
+    enriched = []
+    for checkpoint in checkpoints:
+        cp_copy = dict(checkpoint)
+        filename = cp_copy.get('filename')
+        if filename:
+            path = model_manager.resolve_checkpoint_path(game_id, filename)
+            if path:
+                metadata = _load_checkpoint_metadata(path)
+                cp_copy['training_level'] = metadata.get('training_level')
+                cp_copy['env_steps'] = metadata.get('env_steps')
+                cp_copy['pretrained_origin'] = metadata.get('pretrained_origin')
+        enriched.append(cp_copy)
     return jsonify({
         'success': True,
-        'checkpoints': model_manager.get_available_checkpoints(game_id)
+        'checkpoints': enriched
     })
 
 
@@ -1104,6 +1181,7 @@ def handle_start_training(data):
     global streamer, training_thread, rainbow_agent, frame_stack
     global current_run_mode, current_pretrained_model, pretrained_policy, current_num_actions
     global active_training_sessions, viz_frame_skip, viz_target_fps, training_level
+    global current_pretrained_origin, current_env_steps
     
     logger.info(f"Received start_training event with data: {data}")
     
@@ -1153,11 +1231,20 @@ def handle_start_training(data):
 
     has_local_checkpoints = model_manager.has_checkpoints(game_id)
     if resume_from_saved is None:
-        resume_from_saved = has_local_checkpoints
+        resume_from_saved = has_local_checkpoints if training_level == 'low' else False
+
+    if resume_from_saved and not load_checkpoint:
+        load_checkpoint = _select_checkpoint_for_level(game_id, training_level)
+        if not load_checkpoint and training_level == 'low':
+            load_checkpoint = model_manager.get_latest_checkpoint_name(game_id)
+        if not load_checkpoint and training_level != 'low':
+            resume_from_saved = False
 
     warm_start_model = None
-    if run_mode == 'train' and pretrained_id and not resume_from_saved:
-        warm_start_model = _resolve_pretrained_model(game_id, training_level, pretrained_id)
+    if run_mode == 'train' and not resume_from_saved:
+        warm_start_model = _resolve_pretrained_level(game_id, training_level)
+        if pretrained_id:
+            warm_start_model = _resolve_pretrained_model(game_id, training_level, pretrained_id)
         if warm_start_model:
             if warm_start_model.get('game_id') and warm_start_model.get('game_id') != game_id:
                 emit('error', {'message': 'Pre-trained model does not match selected game'})
@@ -1187,9 +1274,11 @@ def handle_start_training(data):
         frame_stack = FrameStack(num_frames=4, frame_size=(84, 84))
         
         device = get_device()
+        current_env_steps = 0
         
         if run_mode == 'pretrained':
             model_info = _resolve_pretrained_model(game_id, training_level, pretrained_id)
+            current_pretrained_origin = None
             if not model_info:
                 emit('error', {'message': 'Pre-trained model not found for this game'})
                 return
@@ -1204,6 +1293,7 @@ def handle_start_training(data):
             current_run_mode = 'train'
             current_pretrained_model = None
             pretrained_policy = None
+            current_pretrained_origin = None
         
             # Create Rainbow agent
             level_config = TRAINING_LEVELS.get(training_level, TRAINING_LEVELS['medium'])
@@ -1240,6 +1330,12 @@ def handle_start_training(data):
             )
         
             if warm_start_model and (warm_start_model.get('source') or '').lower() == 'bitdefender':
+                current_pretrained_origin = {
+                    'id': warm_start_model.get('id'),
+                    'source': warm_start_model.get('source'),
+                    'step': warm_start_model.get('step'),
+                    'level': warm_start_model.get('level'),
+                }
                 try:
                     warm_steps = _initialize_agent_from_bitdefender(rainbow_agent, warm_start_model)
                     emit('log', {
@@ -1260,6 +1356,11 @@ def handle_start_training(data):
                 try:
                     if checkpoint_to_load:
                         model_manager.load_checkpoint(rainbow_agent, game_id, checkpoint_to_load)
+                        checkpoint_path = model_manager.resolve_checkpoint_path(game_id, checkpoint_to_load)
+                        if checkpoint_path:
+                            checkpoint_metadata = _load_checkpoint_metadata(checkpoint_path)
+                            if checkpoint_metadata.get('pretrained_origin'):
+                                current_pretrained_origin = checkpoint_metadata.get('pretrained_origin')
                         logger.info(f'Loaded checkpoint: {checkpoint_to_load}')
                         emit('log', {'message': f'Loaded checkpoint: {checkpoint_to_load}', 'type': 'success'})
                     else:
@@ -1418,7 +1519,7 @@ def handle_save_model():
             episode,
             best_reward,
             is_best=True,
-            metadata={'session_id': current_session_id}
+            metadata=_build_checkpoint_metadata(env_steps=current_env_steps)
         )
         
         emit('model_saved', {'path': path, 'episode': episode})
@@ -1606,6 +1707,8 @@ def run_training_loop():
 
     episode = local_agent.episode_count
     total_steps = local_agent.step_count
+    global current_env_steps
+    current_env_steps = total_steps
     best_episode_reward = float('-inf')
     session_episode_count = 0
     session_step_count = 0
@@ -1648,6 +1751,7 @@ def run_training_loop():
             while is_training and local_streamer and not done and not training_stop_event.is_set():
                 step += 1
                 total_steps += 1
+                current_env_steps = total_steps
                 session_step_count += 1
                 frame_counter += 1
 
@@ -1697,7 +1801,8 @@ def run_training_loop():
                         reward=episode_reward,
                         epsilon=local_agent.current_epsilon,
                         loss=loss,
-                        q_value=local_agent.last_q_value
+                        q_value=local_agent.last_q_value,
+                        total_steps=total_steps
                     )
 
                 # Speed control
@@ -1719,7 +1824,8 @@ def run_training_loop():
                                 local_agent,
                                 local_game,
                                 episode,
-                                episode_reward
+                                episode_reward,
+                                metadata=_build_checkpoint_metadata(env_steps=total_steps)
                             )
                             last_autosave_time = current_time
                             logger.info(f"Time-based autosave at episode {episode}, step {step}")
@@ -1769,7 +1875,8 @@ def run_training_loop():
                         local_game,
                         episode,
                         episode_reward,
-                        is_best=True
+                        is_best=True,
+                        metadata=_build_checkpoint_metadata(env_steps=total_steps)
                     )
             elif model_manager.should_auto_save(episode):
                 # Regular auto-save
@@ -1777,7 +1884,8 @@ def run_training_loop():
                     local_agent,
                     local_game,
                     episode,
-                    episode_reward
+                    episode_reward,
+                    metadata=_build_checkpoint_metadata(env_steps=total_steps)
                 )
 
             if is_training and not training_stop_event.is_set():
@@ -1864,6 +1972,10 @@ def run_pretrained_loop():
 
     episode = 0
     total_steps = 0
+    global current_env_steps
+    if current_pretrained_model and isinstance(current_pretrained_model.get('step'), int):
+        total_steps = int(current_pretrained_model.get('step'))
+    current_env_steps = total_steps
     best_episode_reward = float('-inf')
     session_episode_count = 0
     session_step_count = 0
@@ -1899,6 +2011,7 @@ def run_pretrained_loop():
             while is_training and local_streamer and not done and not training_stop_event.is_set():
                 step += 1
                 total_steps += 1
+                current_env_steps = total_steps
                 session_step_count += 1
                 frame_counter += 1
 
@@ -1936,6 +2049,7 @@ def run_pretrained_loop():
                         epsilon=0.0,
                         loss=0.0,
                         q_value=getattr(local_policy, 'last_q_value', None),
+                        total_steps=total_steps
                     )
 
                 if training_speed == '1x':

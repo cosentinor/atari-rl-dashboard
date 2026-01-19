@@ -181,8 +181,8 @@ function GameCanvas({ isTraining, sessionId, selectedGame, stats }) {
             alignItems: 'center',
             justifyContent: 'center',
             width: '100%',
-            height: { xs: '240px', sm: '300px', md: '340px', lg: '380px' },
-            maxHeight: '420px',
+            height: { xs: '320px', sm: '420px', md: '520px', lg: '600px' },
+            maxHeight: '640px',
           }}
         >
           <canvas 

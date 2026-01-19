@@ -74,7 +74,8 @@ class FrameStreamer:
         reward: float,
         epsilon: float,
         loss: Optional[float] = None,
-        q_value: Optional[float] = None
+        q_value: Optional[float] = None,
+        total_steps: Optional[int] = None
     ):
         """
         Capture and emit a frame if enough time has passed.
@@ -86,6 +87,7 @@ class FrameStreamer:
             epsilon: Current exploration rate (0 for Rainbow)
             loss: Current training loss
             q_value: Current Q-value
+            total_steps: Total environment steps (optional)
         """
         if not self.is_running:
             return
@@ -130,6 +132,8 @@ class FrameStreamer:
                 'fps': round(self.current_fps, 1),
                 'frameCount': self.frame_count
             }
+            if total_steps is not None:
+                payload['totalSteps'] = total_steps
             
             # Add optional metrics
             if loss is not None:
