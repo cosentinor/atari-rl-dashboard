@@ -891,7 +891,7 @@ function AtariDashboard() {
         </MDBox>
 
         {/* Row 1: Live Game + Controls/Stats */}
-        <Grid container spacing={2} mb={2}>
+        <Grid container spacing={2} mb={2} sx={{ alignItems: 'stretch' }}>
           <Grid item xs={12} lg={9}>
             <GameCanvas
               key={`${selectedGame || 'no-game'}-${sessionId || 'idle'}`}
@@ -902,37 +902,35 @@ function AtariDashboard() {
             />
           </Grid>
           <Grid item xs={12} lg={3}>
-            <Grid container spacing={2}>
-              <Grid item xs={12}>
-                <ControlPanel
-                  games={games}
-                  selectedGame={selectedGame}
-                  onGameChange={handleGameChange}
-                  isTraining={isTraining}
-                  onStart={handleStart}
-                  onStop={handleStop}
-                  onSave={handleSave}
-                  savedModels={savedModels}
-                  loadCheckpoint={loadCheckpoint}
-                  resumeFromSaved={resumeFromSaved}
-                  onLoadCheckpointChange={setLoadCheckpoint}
-                  onResumeFromSavedChange={setResumeFromSaved}
-                  pretrainedModel={selectedPretrainedModel}
-                  pretrainedLoading={pretrainedLoading}
-                  checkpointRefreshKey={checkpointRefreshKey}
-                  onCheckpointsLoaded={handleCheckpointsLoaded}
-                  onDeleteCheckpoint={handleDeleteCheckpoint}
-                  trainingSpeed={trainingSpeed}
-                  onTrainingSpeedChange={handleTrainingSpeedChange}
-                  trainingLevel={trainingLevel}
-                  onTrainingLevelChange={handleTrainingLevelChange}
-                  hasPretrainedModels={hasPretrainedModels}
-                />
-              </Grid>
-              <Grid item xs={12}>
+            <MDBox sx={{ display: 'flex', flexDirection: 'column', height: '100%', gap: 2 }}>
+              <ControlPanel
+                games={games}
+                selectedGame={selectedGame}
+                onGameChange={handleGameChange}
+                isTraining={isTraining}
+                onStart={handleStart}
+                onStop={handleStop}
+                onSave={handleSave}
+                savedModels={savedModels}
+                loadCheckpoint={loadCheckpoint}
+                resumeFromSaved={resumeFromSaved}
+                onLoadCheckpointChange={setLoadCheckpoint}
+                onResumeFromSavedChange={setResumeFromSaved}
+                pretrainedModel={selectedPretrainedModel}
+                pretrainedLoading={pretrainedLoading}
+                checkpointRefreshKey={checkpointRefreshKey}
+                onCheckpointsLoaded={handleCheckpointsLoaded}
+                onDeleteCheckpoint={handleDeleteCheckpoint}
+                trainingSpeed={trainingSpeed}
+                onTrainingSpeedChange={handleTrainingSpeedChange}
+                trainingLevel={trainingLevel}
+                onTrainingLevelChange={handleTrainingLevelChange}
+                hasPretrainedModels={hasPretrainedModels}
+              />
+              <MDBox sx={{ flex: 1 }}>
                 <StatsDisplay stats={stats} />
-              </Grid>
-            </Grid>
+              </MDBox>
+            </MDBox>
           </Grid>
         </Grid>
 

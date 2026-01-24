@@ -113,6 +113,7 @@ function StatsDisplay({ stats }) {
         boxShadow: '0 16px 36px rgba(0, 0, 0, 0.45)',
         borderRadius: '16px',
         width: '100%',
+        height: '100%',
       }}
     >
       <MDBox p={2}>
