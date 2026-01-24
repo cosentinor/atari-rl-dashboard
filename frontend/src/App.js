@@ -27,8 +27,9 @@ import Icon from "@mui/material/Icon";
 import MDBox from "components/MDBox";
 
 // Material Dashboard 3 PRO React examples
-import Sidenav from "examples/Sidenav";
-import Configurator from "examples/Configurator";
+// Removed Sidenav and Configurator for production
+// import Sidenav from "examples/Sidenav";
+// import Configurator from "examples/Configurator";
 
 // Material Dashboard 3 PRO React themes
 import theme from "assets/theme";
@@ -50,12 +51,12 @@ import routes from "routes";
 import {
   useMaterialUIController,
   setMiniSidenav,
-  setOpenConfigurator,
+  // Removed setOpenConfigurator for production
 } from "context";
 
-// Images
-import brandWhite from "assets/images/logo-ct.png";
-import brandDark from "assets/images/logo-ct-dark.png";
+// Removed brand images for production (were only used by Sidenav)
+// import brandWhite from "assets/images/logo-ct.png";
+// import brandDark from "assets/images/logo-ct-dark.png";
 
 export default function App() {
   const [controller, dispatch] = useMaterialUIController();
@@ -63,10 +64,7 @@ export default function App() {
     miniSidenav,
     direction,
     layout,
-    openConfigurator,
-    sidenavColor,
-    transparentSidenav,
-    whiteSidenav,
+    // Removed openConfigurator, sidenavColor, transparentSidenav, whiteSidenav for production
     darkMode,
   } = controller;
   const [onMouseEnter, setOnMouseEnter] = useState(false);
@@ -99,9 +97,9 @@ export default function App() {
     }
   };
 
-  // Change the openConfigurator state
-  const handleConfiguratorOpen = () =>
-    setOpenConfigurator(dispatch, !openConfigurator);
+  // Removed handleConfiguratorOpen for production
+  // const handleConfiguratorOpen = () =>
+  //   setOpenConfigurator(dispatch, !openConfigurator);
 
   // Setting the dir attribute for the body element
   useEffect(() => {
@@ -134,53 +132,36 @@ export default function App() {
       return null;
     });
 
-  const configsButton = (
-    <MDBox
-      display="flex"
-      justifyContent="center"
-      alignItems="center"
-      width="3.25rem"
-      height="3.25rem"
-      bgColor="white"
-      shadow="sm"
-      borderRadius="50%"
-      position="fixed"
-      right="2rem"
-      bottom="2rem"
-      zIndex={99}
-      color="dark"
-      sx={{ cursor: "pointer" }}
-      onClick={handleConfiguratorOpen}
-    >
-      <Icon fontSize="small" color="inherit">
-        settings
-      </Icon>
-    </MDBox>
-  );
+  // Removed configsButton for production
+  // const configsButton = (
+  //   <MDBox
+  //     display="flex"
+  //     justifyContent="center"
+  //     alignItems="center"
+  //     width="3.25rem"
+  //     height="3.25rem"
+  //     bgColor="white"
+  //     shadow="sm"
+  //     borderRadius="50%"
+  //     position="fixed"
+  //     right="2rem"
+  //     bottom="2rem"
+  //     zIndex={99}
+  //     color="dark"
+  //     sx={{ cursor: "pointer" }}
+  //     onClick={handleConfiguratorOpen}
+  //   >
+  //     <Icon fontSize="small" color="inherit">
+  //       settings
+  //     </Icon>
+  //   </MDBox>
+  // );
 
   return direction === "rtl" ? (
     <CacheProvider value={rtlCache}>
       <ThemeProvider theme={darkMode ? themeDarkRTL : themeRTL}>
         <CssBaseline />
-        {layout === "dashboard" && (
-          <>
-            <Sidenav
-              color={sidenavColor}
-              brand={
-                (transparentSidenav && !darkMode) || whiteSidenav
-                  ? brandDark
-                  : brandWhite
-              }
-              brandName="Atari RL Training"
-              routes={routes}
-              onMouseEnter={handleOnMouseEnter}
-              onMouseLeave={handleOnMouseLeave}
-            />
-            <Configurator />
-            {configsButton}
-          </>
-        )}
-        {layout === "vr" && <Configurator />}
+        {/* Removed Sidenav, Configurator, and configsButton for production */}
         <Routes>
           {getRoutes(routes)}
           <Route path="*" element={<Navigate to="/atari" />} />
@@ -190,25 +171,7 @@ export default function App() {
   ) : (
     <ThemeProvider theme={darkMode ? themeDark : theme}>
       <CssBaseline />
-      {layout === "dashboard" && (
-        <>
-          <Sidenav
-            color={sidenavColor}
-            brand={
-              (transparentSidenav && !darkMode) || whiteSidenav
-                ? brandDark
-                : brandWhite
-            }
-            brandName="Atari RL Training"
-            routes={routes}
-            onMouseEnter={handleOnMouseEnter}
-            onMouseLeave={handleOnMouseLeave}
-          />
-          <Configurator />
-          {configsButton}
-        </>
-      )}
-      {layout === "vr" && <Configurator />}
+      {/* Removed Sidenav, Configurator, and configsButton for production */}
       <Routes>
         {getRoutes(routes)}
         <Route path="*" element={<Navigate to="/atari" />} />
