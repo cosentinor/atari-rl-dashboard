@@ -116,24 +116,28 @@ function StatsDisplay({ stats }) {
         height: '100%',
       }}
     >
-      <MDBox p={2}>
+      <MDBox p={2.5} sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
         <MDBox
           sx={{
             display: 'grid',
             gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
-            gap: 1.5,
+            gridTemplateRows: 'repeat(2, 1fr)',
+            gap: 2,
+            flex: 1,
           }}
         >
           {statCards.map((stat) => (
             <MDBox
               key={stat.key}
               sx={{
-                padding: '12px',
-                borderRadius: '10px',
+                padding: '16px',
+                borderRadius: '12px',
                 backgroundColor: 'rgba(255,255,255,0.03)',
                 border: '1px solid rgba(255,255,255,0.06)',
                 transition: 'all 0.2s ease',
-                minHeight: '82px',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'center',
               }}
             >
               <MDBox 
@@ -145,7 +149,7 @@ function StatsDisplay({ stats }) {
                 <MDTypography
                   sx={{ 
                     color: 'rgba(255,255,255,0.7)', 
-                    fontSize: '0.68rem', 
+                    fontSize: '0.75rem', 
                     fontWeight: 600,
                     textTransform: 'uppercase',
                     letterSpacing: '0.5px'
@@ -163,18 +167,18 @@ function StatsDisplay({ stats }) {
                     arrow: { sx: { color: tooltipSx.backgroundColor } },
                   }}
                 >
-                  <Icon sx={{ color: stat.color, fontSize: '1rem !important', cursor: 'help' }}>
+                  <Icon sx={{ color: stat.color, fontSize: '1.2rem !important', cursor: 'help' }}>
                     {stat.icon}
                   </Icon>
                 </Tooltip>
               </MDBox>
               <MDTypography
-                variant="h6"
+                variant="h5"
                 fontWeight="bold"
                 sx={{
                   color: stat.color,
-                  lineHeight: 1.05,
-                  fontSize: '1.1rem',
+                  lineHeight: 1.1,
+                  fontSize: '1.4rem',
                   ...(stat.valueSx || {}),
                 }}
               >
@@ -184,7 +188,7 @@ function StatsDisplay({ stats }) {
                 <MDTypography
                   variant="caption"
                   color="text"
-                  sx={{ opacity: 0.6, fontSize: '0.7rem', whiteSpace: 'nowrap' }}
+                  sx={{ opacity: 0.6, fontSize: '0.75rem', whiteSpace: 'nowrap', mt: 0.5 }}
                 >
                   {stat.subtitle}
                 </MDTypography>
