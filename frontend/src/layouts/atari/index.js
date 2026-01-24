@@ -14,7 +14,8 @@ import MDBox from "components/MDBox";
 import MDTypography from "components/MDTypography";
 import MDButton from "components/MDButton";
 import DashboardLayout from "examples/LayoutContainers/DashboardLayout";
-import DashboardNavbar from "examples/Navbars/DashboardNavbar";
+// Removed DashboardNavbar for production - removes the red waveform decoration
+// import DashboardNavbar from "examples/Navbars/DashboardNavbar";
 import Footer from "examples/Footer";
 
 // Import our custom components
@@ -667,8 +668,8 @@ function AtariDashboard() {
 
   return (
     <DashboardLayout>
-      <DashboardNavbar />
-      <MDBox py={2}>
+      {/* Removed DashboardNavbar for production - removes the red waveform decoration */}
+      <MDBox py={0}>
         {/* Header Row */}
         <MDBox mb={2}>
           <Card
@@ -891,7 +892,7 @@ function AtariDashboard() {
 
         {/* Row 1: Live Game + Controls/Stats */}
         <Grid container spacing={2} mb={2} alignItems="flex-start">
-          <Grid item xs={12} lg={8}>
+          <Grid item xs={12} lg={9}>
             <GameCanvas
               key={`${selectedGame || 'no-game'}-${sessionId || 'idle'}`}
               isTraining={isTraining}
@@ -900,7 +901,7 @@ function AtariDashboard() {
               stats={stats}
             />
           </Grid>
-          <Grid item xs={12} lg={4}>
+          <Grid item xs={12} lg={3}>
             <Grid container spacing={2}>
               <Grid item xs={12}>
                 <ControlPanel
