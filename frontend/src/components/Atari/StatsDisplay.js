@@ -112,14 +112,19 @@ function StatsDisplay({ stats }) {
         border: '1px solid rgba(148, 163, 184, 0.18)',
         boxShadow: '0 16px 36px rgba(0, 0, 0, 0.45)',
         borderRadius: '16px',
+        height: '100%',
+        display: 'flex',
+        flexDirection: 'column',
       }}
     >
-      <MDBox p={2}>
+      <MDBox p={2} sx={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
         <MDBox
           sx={{
             display: 'grid',
             gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
             gap: 1.5,
+            flex: 1,
+            alignContent: 'start',
           }}
         >
           {statCards.map((stat) => (
