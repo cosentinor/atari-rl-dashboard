@@ -891,7 +891,7 @@ function AtariDashboard() {
         </MDBox>
 
         {/* Row 1: Live Game + Controls/Stats */}
-        <Grid container spacing={2} mb={2} alignItems="stretch">
+        <Grid container spacing={2} mb={2}>
           <Grid item xs={12} lg={9}>
             <GameCanvas
               key={`${selectedGame || 'no-game'}-${sessionId || 'idle'}`}
@@ -901,8 +901,8 @@ function AtariDashboard() {
               stats={stats}
             />
           </Grid>
-          <Grid item xs={12} lg={3} sx={{ display: 'flex', flexDirection: 'column' }}>
-            <Grid container spacing={2} sx={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+          <Grid item xs={12} lg={3}>
+            <Grid container spacing={2}>
               <Grid item xs={12}>
                 <ControlPanel
                   games={games}
@@ -929,7 +929,7 @@ function AtariDashboard() {
                   hasPretrainedModels={hasPretrainedModels}
                 />
               </Grid>
-              <Grid item xs={12} sx={{ flex: 1, display: 'flex' }}>
+              <Grid item xs={12}>
                 <StatsDisplay stats={stats} />
               </Grid>
             </Grid>
