@@ -227,6 +227,15 @@ function AtariDashboard() {
       setSavedModels(data.savedModels || []);
       setTrainingSpeed(data.trainingSpeed || '1x');
       setTrainingLevel(data.trainingLevel || 'medium');
+      
+      // Initialize step count if training is already running
+      if (data.isTraining && data.currentSteps) {
+        setStats(prev => ({
+          ...prev,
+          totalSteps: data.currentSteps
+        }));
+      }
+      
       addLog(`Loaded ${data.games?.length || 0} games`);
     });
     

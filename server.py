@@ -82,6 +82,11 @@ def _build_init_payload() -> dict:
     ]
 
     device = get_device()
+    
+    # Include current step count if training
+    current_steps = 0
+    if rainbow_agent and hasattr(rainbow_agent, 'step_count'):
+        current_steps = rainbow_agent.step_count
 
     return {
         'games': games,
@@ -93,7 +98,8 @@ def _build_init_payload() -> dict:
         'trainingSpeed': training_speed,
         'trainingLevel': training_level,
         'vizFrameSkip': viz_frame_skip,
-        'vizTargetFps': viz_target_fps
+        'vizTargetFps': viz_target_fps,
+        'currentSteps': current_steps,
     }
 
 # Global state
@@ -1358,20 +1364,31 @@ def handle_start_training(data):
                     if checkpoint_to_load:
                         checkpoint_payload = model_manager.load_checkpoint(rainbow_agent, game_id, checkpoint_to_load)
                         checkpoint_path = model_manager.resolve_checkpoint_path(game_id, checkpoint_to_load)
+                        
+                        # Extract step count from checkpoint
+                        loaded_steps = 0
                         if checkpoint_path:
                             checkpoint_metadata = _load_checkpoint_metadata(checkpoint_path)
                             if checkpoint_metadata.get('pretrained_origin'):
                                 current_pretrained_origin = checkpoint_metadata.get('pretrained_origin')
                             checkpoint_env_steps = checkpoint_metadata.get('env_steps')
                             if isinstance(checkpoint_env_steps, int):
-                                rainbow_agent.step_count = checkpoint_env_steps
+                                loaded_steps = checkpoint_env_steps
+                        
                         if checkpoint_payload and isinstance(checkpoint_payload, dict):
                             payload_steps = checkpoint_payload.get('step_count')
-                            if isinstance(payload_steps, int) and payload_steps > rainbow_agent.step_count:
-                                rainbow_agent.step_count = payload_steps
-                        current_env_steps = int(rainbow_agent.step_count or 0)
-                        logger.info(f'Loaded checkpoint: {checkpoint_to_load}')
-                        emit('log', {'message': f'Loaded checkpoint: {checkpoint_to_load}', 'type': 'success'})
+                            if isinstance(payload_steps, int):
+                                loaded_steps = max(loaded_steps, payload_steps)
+                        
+                        # Set the step count
+                        if loaded_steps > 0:
+                            rainbow_agent.step_count = loaded_steps
+                            current_env_steps = loaded_steps
+                            logger.info(f'Loaded checkpoint: {checkpoint_to_load} with {loaded_steps} steps')
+                            emit('log', {'message': f'Loaded checkpoint: {checkpoint_to_load} ({loaded_steps:,} steps)', 'type': 'success'})
+                        else:
+                            logger.info(f'Loaded checkpoint: {checkpoint_to_load}')
+                            emit('log', {'message': f'Loaded checkpoint: {checkpoint_to_load}', 'type': 'success'})
                     else:
                         best_path = model_manager.get_best_model_path(game_id)
                         if best_path:
@@ -1396,6 +1413,11 @@ def handle_start_training(data):
             }
         else:
             hyperparameters = rainbow_agent.get_hyperparameters()
+        
+        # Ensure step count is properly initialized
+        if run_mode == 'train' and rainbow_agent:
+            logger.info(f"Agent step count before training: {rainbow_agent.step_count}")
+            current_env_steps = rainbow_agent.step_count
         
         # Create database session
         current_session_id = db.create_session(
@@ -1721,6 +1743,8 @@ def run_training_loop():
     best_episode_reward = float('-inf')
     session_episode_count = 0
     session_step_count = 0
+    
+    logger.info(f"Training loop starting - Episode: {episode}, Total steps: {total_steps}")
 
     # Metrics for emission
     episode_start_time = time.time()
