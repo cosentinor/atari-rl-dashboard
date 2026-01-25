@@ -87,6 +87,12 @@ def _build_init_payload() -> dict:
     current_steps = 0
     if rainbow_agent and hasattr(rainbow_agent, 'step_count'):
         current_steps = rainbow_agent.step_count
+    
+    # Multi-viewer info
+    is_owner = (request.sid == training_owner_sid) if hasattr(request, 'sid') else False
+    training_duration = None
+    if training_start_time:
+        training_duration = int(time.time() - training_start_time)
 
     return {
         'games': games,
@@ -100,6 +106,10 @@ def _build_init_payload() -> dict:
         'vizFrameSkip': viz_frame_skip,
         'vizTargetFps': viz_target_fps,
         'currentSteps': current_steps,
+        'totalViewers': len(connected_viewers),
+        'isOwner': is_owner,
+        'canControl': is_owner or training_owner_sid is None,
+        'trainingDuration': training_duration,
     }
 
 # Global state
@@ -125,6 +135,11 @@ pretrained_policy = None
 current_num_actions = None
 current_pretrained_origin = None
 current_env_steps = 0
+
+# Multi-viewer tracking (single training, multiple viewers)
+training_owner_sid = None  # Socket ID of user who started training
+training_start_time = None
+connected_viewers = set()  # Set of all connected socket IDs
 
 # Watch mode state
 watch_mode_active = False
@@ -1014,7 +1029,9 @@ def get_viz_settings(game_id: str) -> dict:
 @socketio.on('connect')
 def handle_connect(auth=None):
     """Handle new client connection."""
-    logger.info("Client connected")
+    sid = request.sid
+    connected_viewers.add(sid)
+    logger.info(f"Client connected: {sid} (Total viewers: {len(connected_viewers)})")
 
 
 
@@ -1169,13 +1186,42 @@ def handle_get_init():
     emit('init', _build_init_payload())
 
 
+@socketio.on('get_status')
+def handle_get_status():
+    """Get current training status and viewer info."""
+    training_duration = None
+    if training_start_time:
+        training_duration = int(time.time() - training_start_time)
+    
+    is_owner = (request.sid == training_owner_sid)
+    
+    emit('status', {
+        'isTraining': is_training,
+        'currentGame': current_game,
+        'trainingOwner': training_owner_sid,
+        'isOwner': is_owner,
+        'canControl': is_owner or training_owner_sid is None,
+        'totalViewers': len(connected_viewers),
+        'trainingDuration': training_duration,
+        'currentSteps': rainbow_agent.step_count if rainbow_agent else 0,
+    })
+
+
 @socketio.on('disconnect')
 def handle_disconnect():
     """Handle client disconnect."""
-    logger.info("Client disconnected")
-    # Do not stop training on disconnect.
-    # This allows multiple viewers and prevents runs from being lost
-    # when a single client drops.
+    global training_owner_sid
+    sid = request.sid
+    
+    connected_viewers.discard(sid)
+    logger.info(f"Client disconnected: {sid} (Remaining viewers: {len(connected_viewers)})")
+    
+    # If the training owner disconnected, clear ownership but keep training running
+    if training_owner_sid == sid:
+        logger.info(f"Training owner disconnected, but training continues")
+        training_owner_sid = None  # Allow others to control
+    
+    # Training continues for remaining viewers
 
 
 @socketio.on('start_training')
@@ -1186,11 +1232,19 @@ def handle_start_training(data):
     global current_run_mode, current_pretrained_model, pretrained_policy, current_num_actions
     global active_training_sessions, viz_frame_skip, viz_target_fps, training_level
     global current_pretrained_origin, current_env_steps
+    global training_owner_sid, training_start_time
     
     logger.info(f"Received start_training event with data: {data}")
     
     if is_training:
-        emit('error', {'message': 'Training already in progress'})
+        # Show who's currently training
+        owner_msg = f" (User {training_owner_sid[:8]}...)" if training_owner_sid else ""
+        viewers_msg = f" {len(connected_viewers)} viewer(s) watching."
+        emit('error', {
+            'message': f'Training already in progress{owner_msg}.{viewers_msg}',
+            'isTraining': True,
+            'canView': True
+        })
         return
     
     # Check queue capacity
@@ -1442,6 +1496,11 @@ def handle_start_training(data):
         is_training = True
         active_training_sessions += 1
         
+        # Set training owner
+        training_owner_sid = request.sid
+        training_start_time = time.time()
+        logger.info(f"Training owner set to: {training_owner_sid}")
+        
         # Notify client
         emit('training_started', {
             'game': game_id,
@@ -1520,12 +1579,16 @@ def _finalize_training_activity(game_id: str, episodes: int = 0, steps: int = 0)
 
 def _stop_training():
     """Shared stop logic for socket and HTTP."""
-    global is_training
+    global is_training, training_owner_sid, training_start_time
 
     logger.info("Stopping training")
     _finalize_training_activity(current_game)
     is_training = False
     training_stop_event.set()
+    
+    # Clear training owner
+    training_owner_sid = None
+    training_start_time = None
 
     socketio.emit('training_stopped', {})
     socketio.emit('status', {'isTraining': False, 'game': None})

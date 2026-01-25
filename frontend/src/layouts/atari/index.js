@@ -182,6 +182,11 @@ function AtariDashboard() {
   // Chart tabs
   const [chartTab, setChartTab] = useState(0);
   
+  // Multi-viewer info
+  const [totalViewers, setTotalViewers] = useState(1);
+  const [isOwner, setIsOwner] = useState(false);
+  const [canControl, setCanControl] = useState(true);
+  
   const addLog = useCallback((message, type = 'info') => {
     const time = new Date().toLocaleTimeString();
     setLogs(prev => [...prev.slice(-50), { time, message, type }]);
@@ -228,6 +233,11 @@ function AtariDashboard() {
       setTrainingSpeed(data.trainingSpeed || '1x');
       setTrainingLevel(data.trainingLevel || 'medium');
       
+      // Multi-viewer info
+      setTotalViewers(data.totalViewers || 1);
+      setIsOwner(data.isOwner || false);
+      setCanControl(data.canControl !== false);
+      
       // Initialize step count if training is already running
       if (data.isTraining && data.currentSteps) {
         setStats(prev => ({
@@ -236,7 +246,8 @@ function AtariDashboard() {
         }));
       }
       
-      addLog(`Loaded ${data.games?.length || 0} games`);
+      const viewerMsg = data.totalViewers > 1 ? ` (${data.totalViewers} viewers)` : '';
+      addLog(`Loaded ${data.games?.length || 0} games${viewerMsg}`);
     });
     
     // Frame updates
@@ -741,6 +752,32 @@ function AtariDashboard() {
                     >
                       Rainbow + DQN Modern Atari Models
                     </MDTypography>
+                    {totalViewers > 1 && (
+                      <MDBox
+                        px={1.5}
+                        py={0.5}
+                        borderRadius="8px"
+                        sx={{
+                          background: 'rgba(59, 130, 246, 0.15)',
+                          border: '1px solid rgba(59, 130, 246, 0.3)',
+                        }}
+                      >
+                        <MDTypography
+                          variant="caption"
+                          sx={{
+                            color: '#60a5fa',
+                            fontWeight: 600,
+                            fontSize: '0.7rem',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 0.5,
+                          }}
+                        >
+                          <Icon sx={{ fontSize: '0.9rem !important' }}>visibility</Icon>
+                          {totalViewers} Viewers
+                        </MDTypography>
+                      </MDBox>
+                    )}
                     <Tooltip
                       title="Explore DQN Rainbow (local) and DQN Modern (Bitdefender) training runs."
                       arrow

@@ -32,7 +32,8 @@ class FrameStreamer:
         env,
         socketio,
         target_fps: int = 30,
-        jpeg_quality: int = 85
+        jpeg_quality: int = 85,
+        room: str = None
     ):
         """
         Initialize the frame streamer.
@@ -42,11 +43,13 @@ class FrameStreamer:
             socketio: Flask-SocketIO instance
             target_fps: Target frames per second
             jpeg_quality: JPEG compression quality (1-100)
+            room: SocketIO room to emit to (None = broadcast to all)
         """
         self.env = env
         self.socketio = socketio
         self.target_fps = target_fps
         self.jpeg_quality = jpeg_quality
+        self.room = room
         self.frame_interval = 1.0 / target_fps
         
         self.last_frame_time = 0
@@ -141,8 +144,11 @@ class FrameStreamer:
             if q_value is not None:
                 payload['qValue'] = round(q_value, 2)
             
-            # Emit frame data
-            self.socketio.emit('frame', payload)
+            # Emit frame data (to specific room or broadcast)
+            if self.room:
+                self.socketio.emit('frame', payload, room=self.room)
+            else:
+                self.socketio.emit('frame', payload)
             
         except Exception as e:
             logger.error(f"Frame emission error: {e}")
