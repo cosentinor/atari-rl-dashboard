@@ -191,9 +191,9 @@ function GameCanvas({ isTraining, sessionId, selectedGame, stats }) {
             height={480}
             style={{
               display: 'block',
-              width: 'auto',
-                    maxWidth: '100%',
-              maxHeight: '100%',
+              width: '100%',
+              height: '100%',
+              objectFit: 'contain',
               imageRendering: 'pixelated',
             }}
           />

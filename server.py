@@ -1973,8 +1973,14 @@ def run_pretrained_loop():
     episode = 0
     total_steps = 0
     global current_env_steps
-    if current_pretrained_model and isinstance(current_pretrained_model.get('step'), int):
-        total_steps = int(current_pretrained_model.get('step'))
+    if current_pretrained_model:
+        step_val = current_pretrained_model.get('step')
+        if step_val is not None:
+            try:
+                total_steps = int(step_val)
+                logger.info(f"Starting from pretrained step count: {total_steps}")
+            except (ValueError, TypeError):
+                logger.warning(f"Could not parse step count from pretrained model: {step_val}")
     current_env_steps = total_steps
     best_episode_reward = float('-inf')
     session_episode_count = 0
