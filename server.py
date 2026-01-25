@@ -1167,11 +1167,9 @@ def handle_get_init():
 def handle_disconnect():
     """Handle client disconnect."""
     logger.info("Client disconnected")
-    
-    # Stop training on disconnect as requested
-    if is_training:
-        logger.info("Stopping training due to client disconnect")
-        _stop_training()
+    # Do not stop training on disconnect.
+    # This allows multiple viewers and prevents runs from being lost
+    # when a single client drops.
 
 
 @socketio.on('start_training')
@@ -1338,6 +1336,9 @@ def handle_start_training(data):
                 }
                 try:
                     warm_steps = _initialize_agent_from_bitdefender(rainbow_agent, warm_start_model)
+                    if warm_steps:
+                        rainbow_agent.step_count = int(warm_steps)
+                        current_env_steps = int(warm_steps)
                     emit('log', {
                         'message': f'Loaded Bitdefender weights ({warm_steps} steps)',
                         'type': 'success'
@@ -1355,12 +1356,20 @@ def handle_start_training(data):
                 checkpoint_to_load = load_checkpoint or model_manager.get_latest_checkpoint_name(game_id)
                 try:
                     if checkpoint_to_load:
-                        model_manager.load_checkpoint(rainbow_agent, game_id, checkpoint_to_load)
+                        checkpoint_payload = model_manager.load_checkpoint(rainbow_agent, game_id, checkpoint_to_load)
                         checkpoint_path = model_manager.resolve_checkpoint_path(game_id, checkpoint_to_load)
                         if checkpoint_path:
                             checkpoint_metadata = _load_checkpoint_metadata(checkpoint_path)
                             if checkpoint_metadata.get('pretrained_origin'):
                                 current_pretrained_origin = checkpoint_metadata.get('pretrained_origin')
+                            checkpoint_env_steps = checkpoint_metadata.get('env_steps')
+                            if isinstance(checkpoint_env_steps, int):
+                                rainbow_agent.step_count = checkpoint_env_steps
+                        if checkpoint_payload and isinstance(checkpoint_payload, dict):
+                            payload_steps = checkpoint_payload.get('step_count')
+                            if isinstance(payload_steps, int) and payload_steps > rainbow_agent.step_count:
+                                rainbow_agent.step_count = payload_steps
+                        current_env_steps = int(rainbow_agent.step_count or 0)
                         logger.info(f'Loaded checkpoint: {checkpoint_to_load}')
                         emit('log', {'message': f'Loaded checkpoint: {checkpoint_to_load}', 'type': 'success'})
                     else:
