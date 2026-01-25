@@ -1416,6 +1416,16 @@ def handle_start_training(data):
         
         # Ensure step count is properly initialized
         if run_mode == 'train' and rainbow_agent:
+            # Fallback: if step count is 0 but we have pretrained origin, use that
+            if rainbow_agent.step_count == 0 and current_pretrained_origin:
+                origin_steps = current_pretrained_origin.get('step')
+                if origin_steps:
+                    try:
+                        rainbow_agent.step_count = int(origin_steps)
+                        logger.info(f"Initialized step count from pretrained origin: {rainbow_agent.step_count}")
+                    except (ValueError, TypeError):
+                        pass
+            
             logger.info(f"Agent step count before training: {rainbow_agent.step_count}")
             current_env_steps = rainbow_agent.step_count
         
