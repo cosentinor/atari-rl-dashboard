@@ -10,8 +10,9 @@ import threading
 import time
 import torch
 from pathlib import Path
+from typing import Optional
 from flask import Flask, send_from_directory, jsonify, request, send_file
-from flask_socketio import SocketIO, emit
+from flask_socketio import SocketIO, emit, join_room, leave_room
 from flask_cors import CORS
 
 from game_environments import GameEnvironments
@@ -66,7 +67,7 @@ socketio = SocketIO(
 )
 
 
-def _build_init_payload() -> dict:
+def _build_init_payload(session: Optional['TrainingSession'] = None) -> dict:
     """Build the init payload for new clients."""
     games = [
         {
@@ -83,22 +84,30 @@ def _build_init_payload() -> dict:
 
     device = get_device()
     
+    # Session-specific data (multi-user support)
+    is_training = session.is_training if session else False
+    current_game = session.current_game if session else None
+    db_session_id = session.db_session_id if session else None
+    training_speed = session.training_speed if session else "1x"
+    training_level = session.training_level if session else "medium"
+    viz_frame_skip = session.viz_frame_skip if session else 1
+    viz_target_fps = session.viz_target_fps if session else 24
+    
     # Include current step count if training
     current_steps = 0
-    if rainbow_agent and hasattr(rainbow_agent, 'step_count'):
-        current_steps = rainbow_agent.step_count
+    if session and session.rainbow_agent and hasattr(session.rainbow_agent, 'step_count'):
+        current_steps = session.rainbow_agent.step_count
     
-    # Multi-viewer info
-    is_owner = (request.sid == training_owner_sid) if hasattr(request, 'sid') else False
+    # Training duration
     training_duration = None
-    if training_start_time:
-        training_duration = int(time.time() - training_start_time)
+    if session and session.is_training:
+        training_duration = int(time.time() - session.created_at)
 
     return {
         'games': games,
         'isTraining': is_training,
         'currentGame': current_game,
-        'sessionId': current_session_id,
+        'sessionId': db_session_id,
         'savedModels': model_manager.get_all_games(),
         'device': str(device),
         'trainingSpeed': training_speed,
@@ -106,49 +115,161 @@ def _build_init_payload() -> dict:
         'vizFrameSkip': viz_frame_skip,
         'vizTargetFps': viz_target_fps,
         'currentSteps': current_steps,
-        'totalViewers': len(connected_viewers),
-        'isOwner': is_owner,
-        'canControl': is_owner or training_owner_sid is None,
+        'activeSessions': get_active_session_count(),
+        'maxSessions': MAX_CONCURRENT_TRAINING,
+        'canControl': True,  # In multi-user mode, each user controls their own session
         'trainingDuration': training_duration,
     }
 
-# Global state
+# Global state (shared across all sessions)
 game_envs = GameEnvironments()
 model_manager = ModelManager()
 pretrained_manager = PretrainedManager()
 db = TrainingDatabase()
 
-# Training state
-streamer = None
-training_thread = None
-is_training = False
-training_stop_event = threading.Event()
-training_time_lock = threading.Lock()
-last_training_save_time = None
-current_game = None
-current_session_id = None
-rainbow_agent = None
-frame_stack = None
-current_run_mode = "train"
-current_pretrained_model = None
-pretrained_policy = None
-current_num_actions = None
-current_pretrained_origin = None
-current_env_steps = 0
+# ============================================================================
+# Multi-User Session Management
+# ============================================================================
 
-# Multi-viewer tracking (single training, multiple viewers)
-training_owner_sid = None  # Socket ID of user who started training
-training_start_time = None
+class TrainingSession:
+    """Represents an isolated training session for a single user."""
+    
+    def __init__(self, socket_sid: str):
+        self.socket_sid = socket_sid
+        self.room = f"session_{socket_sid}"  # Socket.IO room for this session
+        
+        # Training state (per-user)
+        self.streamer = None
+        self.training_thread = None
+        self.is_training = False
+        self.training_stop_event = threading.Event()
+        self.training_time_lock = threading.Lock()
+        self.last_training_save_time = None
+        
+        # Game state
+        self.current_game = None
+        self.db_session_id = None
+        self.rainbow_agent = None
+        self.frame_stack = None
+        
+        # Run mode
+        self.run_mode = "train"
+        self.pretrained_model = None
+        self.pretrained_policy = None
+        self.num_actions = None
+        self.pretrained_origin = None
+        self.env_steps = 0
+        
+        # Speed/visualization settings
+        self.training_speed = "1x"
+        self.training_level = "medium"
+        self.viz_frame_skip = 1
+        self.viz_target_fps = 24
+        
+        # Timestamps
+        self.created_at = time.time()
+        self.last_activity = time.time()
+        
+    def cleanup(self):
+        """Clean up session resources."""
+        self.training_stop_event.set()
+        self.is_training = False
+        
+        if self.streamer:
+            try:
+                self.streamer.stop()
+            except Exception as e:
+                logger.error(f"Error stopping streamer for {self.socket_sid}: {e}")
+            self.streamer = None
+            
+        if self.training_thread and self.training_thread.is_alive():
+            self.training_thread.join(timeout=2.0)
+            
+        # Clean up large objects
+        self.rainbow_agent = None
+        self.frame_stack = None
+        self.pretrained_policy = None
+        
+        logger.info(f"Session {self.socket_sid} cleaned up")
+        
+    def touch(self):
+        """Update last activity timestamp."""
+        self.last_activity = time.time()
+
+
+# Session storage and management
+training_sessions: dict[str, TrainingSession] = {}
+session_lock = threading.Lock()
+
+# Multi-user limits
+MAX_CONCURRENT_TRAINING = 5  # Max simultaneous training sessions
+SESSION_TIMEOUT = 3600  # 1 hour - cleanup idle sessions
+
+
+def get_or_create_session(socket_sid: str) -> TrainingSession:
+    """Get existing session or create new one for this socket."""
+    with session_lock:
+        if socket_sid not in training_sessions:
+            # Check if we're at capacity
+            active_count = sum(1 for s in training_sessions.values() if s.is_training)
+            if active_count >= MAX_CONCURRENT_TRAINING:
+                logger.warning(f"Max concurrent sessions reached, but creating session for {socket_sid}")
+            
+            training_sessions[socket_sid] = TrainingSession(socket_sid)
+            logger.info(f"Created new training session for {socket_sid} (total: {len(training_sessions)})")
+        return training_sessions[socket_sid]
+
+
+def get_session(socket_sid: str) -> Optional[TrainingSession]:
+    """Get existing session or None."""
+    with session_lock:
+        return training_sessions.get(socket_sid)
+
+
+def cleanup_session(socket_sid: str):
+    """Clean up and remove a training session."""
+    with session_lock:
+        session = training_sessions.pop(socket_sid, None)
+        if session:
+            logger.info(f"Cleaning up session {socket_sid}")
+            session.cleanup()
+
+
+def cleanup_idle_sessions():
+    """Clean up sessions that have been idle for too long."""
+    now = time.time()
+    to_cleanup = []
+    
+    with session_lock:
+        for sid, session in training_sessions.items():
+            if not session.is_training and (now - session.last_activity) > SESSION_TIMEOUT:
+                to_cleanup.append(sid)
+    
+    for sid in to_cleanup:
+        cleanup_session(sid)
+        logger.info(f"Cleaned up idle session: {sid}")
+
+
+def get_active_session_count() -> int:
+    """Get number of currently active training sessions."""
+    with session_lock:
+        return sum(1 for s in training_sessions.values() if s.is_training)
+
+
+def get_total_session_count() -> int:
+    """Get total number of sessions."""
+    with session_lock:
+        return len(training_sessions)
+
+
+# Legacy compatibility - these are used for backward compatibility during migration
+# TODO: Remove after full migration
 connected_viewers = set()  # Set of all connected socket IDs
 
-# Watch mode state
+# Watch mode state (global - shared across sessions)
 watch_mode_active = False
 watch_mode_game = None
 watch_mode_thread = None
-
-# Speed control settings
-training_speed = "1x"  # 1x, 2x, 4x
-training_level = "medium"  # low, medium, high
 LOCAL_MODEL_ID_PREFIX = "rc_model"
 LOCAL_MODEL_SOURCE = "local"
 LOCAL_MODEL_ALGORITHM = "RC_model"
@@ -178,9 +299,7 @@ GAME_VIZ_SETTINGS = {
     'ALE/Freeway-v5': {'target_fps': 16, 'frame_skip': 2},
 }
 
-# Performance: Connection pooling
-MAX_CONCURRENT_TRAINING = 3  # Max simultaneous training sessions
-active_training_sessions = 0
+# Training queue (for when max sessions reached)
 training_queue = []
 
 def _env_int(name: str, default: int) -> int:
@@ -333,15 +452,26 @@ def _select_checkpoint_for_level(game_id: str, level: str) -> str | None:
 
 
 def _build_checkpoint_metadata(env_steps: int | None = None) -> dict:
+    """Build checkpoint metadata (legacy - uses global state)."""
     metadata = {
-        'training_level': training_level,
+        'training_level': 'medium',  # Default since global training_level may not exist
     }
-    if current_pretrained_origin:
-        metadata['pretrained_origin'] = current_pretrained_origin
-    if current_session_id:
-        metadata['session_id'] = current_session_id
     if env_steps is not None:
         metadata['env_steps'] = env_steps
+    return metadata
+
+
+def _build_checkpoint_metadata_session(session: 'TrainingSession') -> dict:
+    """Build checkpoint metadata from session state."""
+    metadata = {
+        'training_level': session.training_level,
+    }
+    if session.pretrained_origin:
+        metadata['pretrained_origin'] = session.pretrained_origin
+    if session.db_session_id:
+        metadata['session_id'] = session.db_session_id
+    if session.env_steps is not None:
+        metadata['env_steps'] = session.env_steps
     return metadata
 
 def _resolve_local_model_by_id(model_id: str) -> dict | None:
@@ -1031,7 +1161,12 @@ def handle_connect(auth=None):
     """Handle new client connection."""
     sid = request.sid
     connected_viewers.add(sid)
-    logger.info(f"Client connected: {sid} (Total viewers: {len(connected_viewers)})")
+    
+    # Create session for this user and join their room
+    session = get_or_create_session(sid)
+    join_room(session.room)
+    
+    logger.info(f"Client connected: {sid} (Active sessions: {get_active_session_count()}, Total: {get_total_session_count()})")
 
 
 
@@ -1183,82 +1318,82 @@ def _initialize_agent_from_bitdefender(agent: RainbowAgent, model_info: dict) ->
 @socketio.on('get_init')
 def handle_get_init():
     """Send init payload after the client confirms it is connected."""
-    emit('init', _build_init_payload())
+    sid = request.sid
+    session = get_session(sid)
+    emit('init', _build_init_payload(session))
 
 
 @socketio.on('get_status')
 def handle_get_status():
-    """Get current training status and viewer info."""
-    training_duration = None
-    if training_start_time:
-        training_duration = int(time.time() - training_start_time)
+    """Get current training status for this user's session."""
+    sid = request.sid
+    session = get_session(sid)
     
-    is_owner = (request.sid == training_owner_sid)
+    training_duration = None
+    if session and session.is_training:
+        training_duration = int(time.time() - session.created_at)
+    
+    current_steps = 0
+    if session and session.rainbow_agent:
+        current_steps = session.rainbow_agent.step_count
     
     emit('status', {
-        'isTraining': is_training,
-        'currentGame': current_game,
-        'trainingOwner': training_owner_sid,
-        'isOwner': is_owner,
-        'canControl': is_owner or training_owner_sid is None,
-        'totalViewers': len(connected_viewers),
+        'isTraining': session.is_training if session else False,
+        'currentGame': session.current_game if session else None,
+        'canControl': True,  # Multi-user: each user controls their own session
+        'activeSessions': get_active_session_count(),
+        'maxSessions': MAX_CONCURRENT_TRAINING,
         'trainingDuration': training_duration,
-        'currentSteps': rainbow_agent.step_count if rainbow_agent else 0,
+        'currentSteps': current_steps,
     })
 
 
 @socketio.on('disconnect')
 def handle_disconnect():
     """Handle client disconnect."""
-    global training_owner_sid
     sid = request.sid
     
     connected_viewers.discard(sid)
-    logger.info(f"Client disconnected: {sid} (Remaining viewers: {len(connected_viewers)})")
     
-    # If the training owner disconnected, clear ownership but keep training running
-    if training_owner_sid == sid:
-        logger.info(f"Training owner disconnected, but training continues")
-        training_owner_sid = None  # Allow others to control
+    # Get session and leave room
+    session = get_session(sid)
+    if session:
+        leave_room(session.room)
+        # Clean up session resources (stops training if active)
+        cleanup_session(sid)
     
-    # Training continues for remaining viewers
+    logger.info(f"Client disconnected: {sid} (Active sessions: {get_active_session_count()})")
 
 
 @socketio.on('start_training')
 def handle_start_training(data):
-    """Start training for a game."""
-    global is_training, current_game, current_session_id
-    global streamer, training_thread, rainbow_agent, frame_stack
-    global current_run_mode, current_pretrained_model, pretrained_policy, current_num_actions
-    global active_training_sessions, viz_frame_skip, viz_target_fps, training_level
-    global current_pretrained_origin, current_env_steps
-    global training_owner_sid, training_start_time
+    """Start training for a game (multi-user: each user gets their own session)."""
+    sid = request.sid
+    session = get_or_create_session(sid)
     
-    logger.info(f"Received start_training event with data: {data}")
+    logger.info(f"Received start_training event from {sid} with data: {data}")
     
-    if is_training:
-        # Show who's currently training
-        owner_msg = f" (User {training_owner_sid[:8]}...)" if training_owner_sid else ""
-        viewers_msg = f" {len(connected_viewers)} viewer(s) watching."
+    # Check if THIS user already has training in progress
+    if session.is_training:
         emit('error', {
-            'message': f'Training already in progress{owner_msg}.{viewers_msg}',
+            'message': 'You already have training in progress',
             'isTraining': True,
-            'canView': True
         })
         return
     
-    # Check queue capacity
-    if active_training_sessions >= MAX_CONCURRENT_TRAINING:
+    # Check server capacity (total active training sessions)
+    active_count = get_active_session_count()
+    if active_count >= MAX_CONCURRENT_TRAINING:
         queue_position = len(training_queue) + 1
-        training_queue.append(data)
+        training_queue.append({'sid': sid, 'data': data})
         emit('queued', {
             'position': queue_position,
-            'message': f'Server is busy. You are #{queue_position} in queue.'
+            'message': f'Server is busy ({active_count}/{MAX_CONCURRENT_TRAINING} sessions). You are #{queue_position} in queue.'
         })
         return
     
     raw_game_id = data.get('game')
-    load_checkpoint = data.get('loadCheckpoint')  # Optional checkpoint to load
+    load_checkpoint = data.get('loadCheckpoint')
     resume_from_saved = data.get('resumeFromSaved')
     run_mode = data.get('runMode') or data.get('mode') or ('pretrained' if data.get('pretrainedId') else 'train')
     pretrained_id = data.get('pretrainedId') or data.get('pretrained_id') or data.get('pretrainedModelId')
@@ -1273,7 +1408,7 @@ def handle_start_training(data):
         resume_from_saved = resume_from_saved.strip().lower() in {"1", "true", "yes", "on"}
 
     requested_level = data.get('trainingLevel') or data.get('training_level')
-    training_level = _resolve_training_level(requested_level)
+    session.training_level = _resolve_training_level(requested_level)
     
     if not raw_game_id:
         emit('error', {'message': 'No game specified'})
@@ -1289,20 +1424,20 @@ def handle_start_training(data):
 
     has_local_checkpoints = model_manager.has_checkpoints(game_id)
     if resume_from_saved is None:
-        resume_from_saved = has_local_checkpoints if training_level == 'low' else False
+        resume_from_saved = has_local_checkpoints if session.training_level == 'low' else False
 
     if resume_from_saved and not load_checkpoint:
-        load_checkpoint = _select_checkpoint_for_level(game_id, training_level)
-        if not load_checkpoint and training_level == 'low':
+        load_checkpoint = _select_checkpoint_for_level(game_id, session.training_level)
+        if not load_checkpoint and session.training_level == 'low':
             load_checkpoint = model_manager.get_latest_checkpoint_name(game_id)
-        if not load_checkpoint and training_level != 'low':
+        if not load_checkpoint and session.training_level != 'low':
             resume_from_saved = False
 
     warm_start_model = None
     if run_mode == 'train' and not resume_from_saved:
-        warm_start_model = _resolve_pretrained_level(game_id, training_level)
+        warm_start_model = _resolve_pretrained_level(game_id, session.training_level)
         if pretrained_id:
-            warm_start_model = _resolve_pretrained_model(game_id, training_level, pretrained_id)
+            warm_start_model = _resolve_pretrained_model(game_id, session.training_level, pretrained_id)
         if warm_start_model:
             if warm_start_model.get('game_id') and warm_start_model.get('game_id') != game_id:
                 emit('error', {'message': 'Pre-trained model does not match selected game'})
@@ -1314,10 +1449,10 @@ def handle_start_training(data):
                 warm_start_model = None
 
     viz_settings = get_viz_settings(game_id)
-    viz_frame_skip = viz_settings['frame_skip']
-    viz_target_fps = viz_settings['target_fps']
+    session.viz_frame_skip = viz_settings['frame_skip']
+    session.viz_target_fps = viz_settings['target_fps']
     logger.info(
-        f"Starting training for game_id: {game_id} | viz_fps={viz_target_fps} | frame_skip={viz_frame_skip}"
+        f"Starting training for {sid}: game_id={game_id} | viz_fps={session.viz_target_fps} | frame_skip={session.viz_frame_skip}"
     )
     
     try:
@@ -1326,35 +1461,35 @@ def handle_start_training(data):
         
         # Get action space size
         num_actions = env.action_space.n
-        current_num_actions = num_actions
+        session.num_actions = num_actions
         
         # Create frame stacker
-        frame_stack = FrameStack(num_frames=4, frame_size=(84, 84))
+        session.frame_stack = FrameStack(num_frames=4, frame_size=(84, 84))
         
         device = get_device()
-        current_env_steps = 0
+        session.env_steps = 0
         
         if run_mode == 'pretrained':
-            model_info = _resolve_pretrained_model(game_id, training_level, pretrained_id)
-            current_pretrained_origin = None
+            model_info = _resolve_pretrained_model(game_id, session.training_level, pretrained_id)
+            session.pretrained_origin = None
             if not model_info:
                 emit('error', {'message': 'Pre-trained model not found for this game'})
                 return
             if model_info.get('game_id') and model_info.get('game_id') != game_id:
                 emit('error', {'message': 'Pre-trained model does not match selected game'})
                 return
-            current_run_mode = 'pretrained'
-            current_pretrained_model = model_info
-            pretrained_policy = load_pretrained_policy(model_info, num_actions, device)
-            rainbow_agent = None
+            session.run_mode = 'pretrained'
+            session.pretrained_model = model_info
+            session.pretrained_policy = load_pretrained_policy(model_info, num_actions, device)
+            session.rainbow_agent = None
         else:
-            current_run_mode = 'train'
-            current_pretrained_model = None
-            pretrained_policy = None
-            current_pretrained_origin = None
+            session.run_mode = 'train'
+            session.pretrained_model = None
+            session.pretrained_policy = None
+            session.pretrained_origin = None
         
             # Create Rainbow agent
-            level_config = TRAINING_LEVELS.get(training_level, TRAINING_LEVELS['medium'])
+            level_config = TRAINING_LEVELS.get(session.training_level, TRAINING_LEVELS['medium'])
             buffer_size = _env_int('RL_BUFFER_SIZE', level_config['buffer_size'])
             min_buffer_size = _env_int('RL_MIN_BUFFER_SIZE', level_config['min_buffer_size'])
             batch_size = _env_int('RL_BATCH_SIZE', level_config['batch_size'])
@@ -1369,14 +1504,14 @@ def handle_start_training(data):
                 min_buffer_size = buffer_size
             logger.info(
                 'Training config: level=%s buffer_size=%s min_buffer_size=%s batch_size=%s n_step=%s store_uint8=%s',
-                training_level,
+                session.training_level,
                 buffer_size,
                 min_buffer_size,
                 batch_size,
                 n_step,
                 store_uint8,
             )
-            rainbow_agent = RainbowAgent(
+            session.rainbow_agent = RainbowAgent(
                 state_shape=(4, 84, 84),
                 num_actions=num_actions,
                 device=device,
@@ -1388,17 +1523,17 @@ def handle_start_training(data):
             )
         
             if warm_start_model and (warm_start_model.get('source') or '').lower() == 'bitdefender':
-                current_pretrained_origin = {
+                session.pretrained_origin = {
                     'id': warm_start_model.get('id'),
                     'source': warm_start_model.get('source'),
                     'step': warm_start_model.get('step'),
                     'level': warm_start_model.get('level'),
                 }
                 try:
-                    warm_steps = _initialize_agent_from_bitdefender(rainbow_agent, warm_start_model)
+                    warm_steps = _initialize_agent_from_bitdefender(session.rainbow_agent, warm_start_model)
                     if warm_steps:
-                        rainbow_agent.step_count = int(warm_steps)
-                        current_env_steps = int(warm_steps)
+                        session.rainbow_agent.step_count = int(warm_steps)
+                        session.env_steps = int(warm_steps)
                     emit('log', {
                         'message': f'Loaded Bitdefender weights ({warm_steps} steps)',
                         'type': 'success'
@@ -1416,7 +1551,7 @@ def handle_start_training(data):
                 checkpoint_to_load = load_checkpoint or model_manager.get_latest_checkpoint_name(game_id)
                 try:
                     if checkpoint_to_load:
-                        checkpoint_payload = model_manager.load_checkpoint(rainbow_agent, game_id, checkpoint_to_load)
+                        checkpoint_payload = model_manager.load_checkpoint(session.rainbow_agent, game_id, checkpoint_to_load)
                         checkpoint_path = model_manager.resolve_checkpoint_path(game_id, checkpoint_to_load)
                         
                         # Extract step count from checkpoint
@@ -1424,7 +1559,7 @@ def handle_start_training(data):
                         if checkpoint_path:
                             checkpoint_metadata = _load_checkpoint_metadata(checkpoint_path)
                             if checkpoint_metadata.get('pretrained_origin'):
-                                current_pretrained_origin = checkpoint_metadata.get('pretrained_origin')
+                                session.pretrained_origin = checkpoint_metadata.get('pretrained_origin')
                             checkpoint_env_steps = checkpoint_metadata.get('env_steps')
                             if isinstance(checkpoint_env_steps, int):
                                 loaded_steps = checkpoint_env_steps
@@ -1436,8 +1571,8 @@ def handle_start_training(data):
                         
                         # Set the step count
                         if loaded_steps > 0:
-                            rainbow_agent.step_count = loaded_steps
-                            current_env_steps = loaded_steps
+                            session.rainbow_agent.step_count = loaded_steps
+                            session.env_steps = loaded_steps
                             logger.info(f'Loaded checkpoint: {checkpoint_to_load} with {loaded_steps} steps')
                             emit('log', {'message': f'Loaded checkpoint: {checkpoint_to_load} ({loaded_steps:,} steps)', 'type': 'success'})
                         else:
@@ -1446,7 +1581,7 @@ def handle_start_training(data):
                     else:
                         best_path = model_manager.get_best_model_path(game_id)
                         if best_path:
-                            model_manager.load_checkpoint(rainbow_agent, game_id, None)
+                            model_manager.load_checkpoint(session.rainbow_agent, game_id, None)
                             logger.info('Loaded checkpoint: best_model.pt')
                             emit('log', {'message': 'Loaded checkpoint: best_model.pt', 'type': 'success'})
                         else:
@@ -1454,80 +1589,78 @@ def handle_start_training(data):
                 except Exception as e:
                     logger.warning(f'Failed to load checkpoint: {e}')
                     emit('log', {'message': 'Starting fresh (checkpoint load failed)', 'type': 'warning'})
-        # Create streamer
-        streamer = FrameStreamer(env, socketio, target_fps=viz_target_fps)
+        
+        # Create streamer with room support for multi-user
+        session.streamer = FrameStreamer(env, socketio, target_fps=session.viz_target_fps, room=session.room)
         
         if run_mode == 'pretrained':
             hyperparameters = {
                 'mode': 'pretrained',
-                'model_id': current_pretrained_model.get('id') if current_pretrained_model else None,
-                'source': current_pretrained_model.get('source') if current_pretrained_model else None,
-                'algorithm': current_pretrained_model.get('algorithm') if current_pretrained_model else None,
-                'step': current_pretrained_model.get('step') if current_pretrained_model else None,
+                'model_id': session.pretrained_model.get('id') if session.pretrained_model else None,
+                'source': session.pretrained_model.get('source') if session.pretrained_model else None,
+                'algorithm': session.pretrained_model.get('algorithm') if session.pretrained_model else None,
+                'step': session.pretrained_model.get('step') if session.pretrained_model else None,
             }
         else:
-            hyperparameters = rainbow_agent.get_hyperparameters()
+            hyperparameters = session.rainbow_agent.get_hyperparameters()
         
         # Ensure step count is properly initialized
-        if run_mode == 'train' and rainbow_agent:
+        if run_mode == 'train' and session.rainbow_agent:
             # Fallback: if step count is 0 but we have pretrained origin, use that
-            if rainbow_agent.step_count == 0 and current_pretrained_origin:
-                origin_steps = current_pretrained_origin.get('step')
+            if session.rainbow_agent.step_count == 0 and session.pretrained_origin:
+                origin_steps = session.pretrained_origin.get('step')
                 if origin_steps:
                     try:
-                        rainbow_agent.step_count = int(origin_steps)
-                        logger.info(f"Initialized step count from pretrained origin: {rainbow_agent.step_count}")
+                        session.rainbow_agent.step_count = int(origin_steps)
+                        logger.info(f"Initialized step count from pretrained origin: {session.rainbow_agent.step_count}")
                     except (ValueError, TypeError):
                         pass
             
-            logger.info(f"Agent step count before training: {rainbow_agent.step_count}")
-            current_env_steps = rainbow_agent.step_count
+            logger.info(f"Agent step count before training: {session.rainbow_agent.step_count}")
+            session.env_steps = session.rainbow_agent.step_count
         
         # Create database session
-        current_session_id = db.create_session(
+        session.db_session_id = db.create_session(
             game_id=game_id,
             device=str(device),
             hyperparameters=hyperparameters,
         )
         
-        current_game = game_id
-        _start_training_activity(game_id)
-        training_stop_event.clear()
-        is_training = True
-        active_training_sessions += 1
+        session.current_game = game_id
+        _start_training_activity_session(session)
+        session.training_stop_event.clear()
+        session.is_training = True
+        session.touch()
         
-        # Set training owner
-        training_owner_sid = request.sid
-        training_start_time = time.time()
-        logger.info(f"Training owner set to: {training_owner_sid}")
+        logger.info(f"Training started for {sid}: game={game_id}, mode={run_mode}")
         
-        # Notify client
+        # Notify client (only this user via their room)
         emit('training_started', {
             'game': game_id,
-            'sessionId': current_session_id,
+            'sessionId': session.db_session_id,
             'device': str(device),
-            'trainingLevel': training_level,
-            'vizFrameSkip': viz_frame_skip,
-            'vizTargetFps': viz_target_fps,
+            'trainingLevel': session.training_level,
+            'vizFrameSkip': session.viz_frame_skip,
+            'vizTargetFps': session.viz_target_fps,
             'runMode': run_mode,
-            'pretrainedModel': current_pretrained_model if run_mode == 'pretrained' else None,
+            'pretrainedModel': session.pretrained_model if run_mode == 'pretrained' else None,
+            'activeSessions': get_active_session_count(),
         })
-        socketio.emit('status', {'isTraining': True, 'game': game_id, 'runMode': run_mode})
         
-        # Start training in background thread
-        thread_target = run_pretrained_loop if run_mode == 'pretrained' else run_training_loop
-        training_thread = threading.Thread(target=thread_target, daemon=True)
-        training_thread.start()
+        # Start training in background thread, passing the session
+        thread_target = run_pretrained_loop_session if run_mode == 'pretrained' else run_training_loop_session
+        session.training_thread = threading.Thread(target=thread_target, args=(session,), daemon=True)
+        session.training_thread.start()
         
     except Exception as e:
-        logger.error(f"Failed to start training: {e}")
+        logger.error(f"Failed to start training for {sid}: {e}")
         import traceback
         traceback.print_exc()
         emit('error', {'message': str(e)})
 
 
 def _start_training_activity(game_id: str):
-    """Initialize training activity tracking for leaderboard stats."""
+    """Initialize training activity tracking for leaderboard stats (legacy)."""
     global last_training_save_time
     if not game_id:
         return
@@ -1536,8 +1669,17 @@ def _start_training_activity(game_id: str):
     db.record_training_activity(game_id, sessions=1)
 
 
+def _start_training_activity_session(session: TrainingSession):
+    """Initialize training activity tracking for a session."""
+    if not session.current_game:
+        return
+    with session.training_time_lock:
+        session.last_training_save_time = time.time()
+    db.record_training_activity(session.current_game, sessions=1)
+
+
 def _record_training_time(game_id: str, now: float | None = None):
-    """Record elapsed training time at the configured autosave interval."""
+    """Record elapsed training time at the configured autosave interval (legacy)."""
     global last_training_save_time
     if not game_id:
         return
@@ -1557,8 +1699,28 @@ def _record_training_time(game_id: str, now: float | None = None):
     db.record_training_activity(game_id, duration_seconds=seconds)
 
 
+def _record_training_time_session(session: TrainingSession, now: float | None = None):
+    """Record elapsed training time for a session."""
+    if not session.current_game:
+        return
+    if now is None:
+        now = time.time()
+    with session.training_time_lock:
+        if session.last_training_save_time is None:
+            session.last_training_save_time = now
+            return
+        elapsed = now - session.last_training_save_time
+        if elapsed < AUTOSAVE_INTERVAL_SECONDS:
+            return
+        session.last_training_save_time = now
+    seconds = int(elapsed)
+    if seconds <= 0:
+        return
+    db.record_training_activity(session.current_game, duration_seconds=seconds)
+
+
 def _finalize_training_activity(game_id: str, episodes: int = 0, steps: int = 0):
-    """Flush remaining training time and counters when training stops."""
+    """Flush remaining training time and counters when training stops (legacy)."""
     global last_training_save_time
     if not game_id:
         return
@@ -1577,53 +1739,89 @@ def _finalize_training_activity(game_id: str, episodes: int = 0, steps: int = 0)
     )
 
 
+def _finalize_training_activity_session(session: TrainingSession, episodes: int = 0, steps: int = 0):
+    """Flush remaining training time for a session when training stops."""
+    if not session.current_game:
+        return
+    now = time.time()
+    with session.training_time_lock:
+        if session.last_training_save_time is None:
+            elapsed_seconds = 0
+        else:
+            elapsed_seconds = int(now - session.last_training_save_time)
+            session.last_training_save_time = None
+    db.record_training_activity(
+        game_id=session.current_game,
+        duration_seconds=max(elapsed_seconds, 0),
+        episodes=episodes,
+        steps=steps
+    )
+
+
 def _stop_training():
-    """Shared stop logic for socket and HTTP."""
-    global is_training, training_owner_sid, training_start_time
+    """Shared stop logic for socket and HTTP (legacy)."""
+    pass  # No longer used - kept for backward compatibility
 
-    logger.info("Stopping training")
-    _finalize_training_activity(current_game)
-    is_training = False
-    training_stop_event.set()
+
+def _stop_training_session(session: TrainingSession):
+    """Stop training for a specific session."""
+    if not session:
+        return
     
-    # Clear training owner
-    training_owner_sid = None
-    training_start_time = None
-
-    socketio.emit('training_stopped', {})
-    socketio.emit('status', {'isTraining': False, 'game': None})
+    logger.info(f"Stopping training for session {session.socket_sid}")
+    _finalize_training_activity_session(session)
+    session.training_stop_event.set()
+    session.is_training = False
+    
+    # Emit to this user's room only
+    socketio.emit('training_stopped', {}, room=session.room)
 
 
 @socketio.on('stop_training')
 def handle_stop_training(data=None):
-    """Stop current training."""
-    _stop_training()
+    """Stop current training for this user's session."""
+    sid = request.sid
+    session = get_session(sid)
+    
+    if not session:
+        emit('error', {'message': 'No active session'})
+        return
+    
+    if not session.is_training:
+        emit('error', {'message': 'No training in progress'})
+        return
+    
+    _stop_training_session(session)
+    logger.info(f"Training stopped for {sid}")
 
 
 @socketio.on('save_model')
 def handle_save_model():
-    """Manually save current model."""
-    if not rainbow_agent or not current_game:
+    """Manually save current model for this user's session."""
+    sid = request.sid
+    session = get_session(sid)
+    
+    if not session or not session.rainbow_agent or not session.current_game:
         emit('error', {'message': 'No active training session'})
         return
     
     try:
         # Get current stats
-        stats = rainbow_agent.get_stats()
+        stats = session.rainbow_agent.get_stats()
         episode = stats.get('episode_count', 0)
         
         # Get best reward from session
-        session_stats = db.get_reward_stats(current_session_id) if current_session_id else {}
+        session_stats = db.get_reward_stats(session.db_session_id) if session.db_session_id else {}
         best_reward = session_stats.get('best_reward', 0)
         
         # Save checkpoint
         path = model_manager.save_checkpoint(
-            rainbow_agent,
-            current_game,
+            session.rainbow_agent,
+            session.current_game,
             episode,
             best_reward,
             is_best=True,
-            metadata=_build_checkpoint_metadata(env_steps=current_env_steps)
+            metadata=_build_checkpoint_metadata_session(session)
         )
         
         emit('model_saved', {'path': path, 'episode': episode})
@@ -1636,16 +1834,19 @@ def handle_save_model():
 
 @socketio.on('load_model')
 def handle_load_model(data):
-    """Load a saved model."""
+    """Load a saved model for this user's session."""
+    sid = request.sid
+    session = get_session(sid)
+    
     game_id = data.get('game_id')
     checkpoint = data.get('checkpoint')
     
-    if not rainbow_agent:
+    if not session or not session.rainbow_agent:
         emit('error', {'message': 'Start training first'})
         return
     
     try:
-        model_manager.load_checkpoint(rainbow_agent, game_id, checkpoint)
+        model_manager.load_checkpoint(session.rainbow_agent, game_id, checkpoint)
         emit('model_loaded', {'checkpoint': checkpoint})
         emit('log', {'message': f'Loaded: {checkpoint}', 'type': 'success'})
     except Exception as e:
@@ -1654,74 +1855,90 @@ def handle_load_model(data):
 
 @socketio.on('set_training_level')
 def handle_set_training_level(data):
-    """Update training level selection and swap pretrained policy if running."""
-    global training_level, pretrained_policy, current_pretrained_model
-    global current_run_mode, current_game, current_num_actions
+    """Update training level selection for this user's session."""
+    sid = request.sid
+    session = get_session(sid)
+    
+    if not session:
+        emit('error', {'message': 'No active session'})
+        return
 
     requested_level = None
     if isinstance(data, dict):
         requested_level = data.get('trainingLevel') or data.get('training_level')
-    training_level = _resolve_training_level(requested_level)
+    session.training_level = _resolve_training_level(requested_level)
 
-    if not is_training or current_run_mode != 'pretrained' or not current_game:
-        socketio.emit('log', {'message': f'Training level set to {training_level}.', 'type': 'info'})
+    if not session.is_training or session.run_mode != 'pretrained' or not session.current_game:
+        emit('log', {'message': f'Training level set to {session.training_level}.', 'type': 'info'})
         return
 
-    model_info = _resolve_pretrained_level(current_game, training_level)
+    model_info = _resolve_pretrained_level(session.current_game, session.training_level)
     if not model_info:
         emit('error', {'message': 'No pre-trained model available for this level'})
         return
 
-    if current_pretrained_model and model_info.get('id') == current_pretrained_model.get('id'):
+    if session.pretrained_model and model_info.get('id') == session.pretrained_model.get('id'):
         return
 
-    num_actions = current_num_actions
+    num_actions = session.num_actions
     if not num_actions:
-        game_info = game_envs.get_game_info(current_game)
+        game_info = game_envs.get_game_info(session.current_game)
         num_actions = game_info.action_space_size if game_info else 0
     if not num_actions:
         emit('error', {'message': 'Unable to switch model (unknown action space)'})
         return
 
     try:
-        pretrained_policy = load_pretrained_policy(model_info, num_actions, get_device())
-        current_pretrained_model = model_info
-        socketio.emit('log', {'message': f'Switched to {training_level} snapshot.', 'type': 'success'})
+        session.pretrained_policy = load_pretrained_policy(model_info, num_actions, get_device())
+        session.pretrained_model = model_info
+        emit('log', {'message': f'Switched to {session.training_level} snapshot.', 'type': 'success'})
     except Exception as exc:
-        logger.error(f"Failed to switch pretrained model: {exc}")
+        logger.error(f"Failed to switch pretrained model for {sid}: {exc}")
         emit('error', {'message': str(exc)})
 
 
 @socketio.on('set_training_speed')
 def handle_set_training_speed(data):
-    """Set training speed."""
-    global training_speed
+    """Set training speed for this user's session."""
+    sid = request.sid
+    session = get_session(sid)
+    
+    if not session:
+        emit('error', {'message': 'No active session'})
+        return
+    
     speed = data.get('speed', '1x')
     
     if speed in ['1x', '2x', '4x']:
-        training_speed = speed
-        logger.info(f"Training speed set to: {speed}")
-        socketio.emit('speed_changed', {'trainingSpeed': speed})
+        session.training_speed = speed
+        logger.info(f"Training speed set to: {speed} for {sid}")
+        emit('speed_changed', {'trainingSpeed': speed})
 
 
 @socketio.on('set_viz_speed')
 def handle_set_viz_speed(data):
-    """Set visualization frame skip."""
-    global viz_frame_skip, viz_target_fps
+    """Set visualization frame skip for this user's session."""
+    sid = request.sid
+    session = get_session(sid)
+    
+    if not session:
+        emit('error', {'message': 'No active session'})
+        return
+    
     skip = data.get('frameSkip', 1)
     target_fps = data.get('targetFps')
     
     if isinstance(skip, int) and 1 <= skip <= 100:
-        viz_frame_skip = skip
-        logger.info(f"Visualization frame skip set to: {skip}")
-        socketio.emit('speed_changed', {'vizFrameSkip': skip})
+        session.viz_frame_skip = skip
+        logger.info(f"Visualization frame skip set to: {skip} for {sid}")
+        emit('speed_changed', {'vizFrameSkip': skip})
 
     if isinstance(target_fps, (int, float)) and 5 <= target_fps <= 60:
-        viz_target_fps = int(target_fps)
-        if streamer:
-            streamer.set_target_fps(viz_target_fps)
-        logger.info(f"Visualization target FPS set to: {viz_target_fps}")
-        socketio.emit('speed_changed', {'vizTargetFps': viz_target_fps})
+        session.viz_target_fps = int(target_fps)
+        if session.streamer:
+            session.streamer.set_target_fps(session.viz_target_fps)
+        logger.info(f"Visualization target FPS set to: {session.viz_target_fps} for {sid}")
+        emit('speed_changed', {'vizTargetFps': session.viz_target_fps})
 
 
 @socketio.on('delete_checkpoint')
@@ -2255,6 +2472,445 @@ def run_pretrained_loop():
             socketio.emit('queue_ready', {'data': next_request})
 
         logger.info('Pretrained loop ended')
+
+
+# ============== Session-Aware Training Loops (Multi-User) ==============
+
+def run_training_loop_session(session: TrainingSession):
+    """Main training loop for a specific session (multi-user support)."""
+    
+    local_streamer = session.streamer
+    local_agent = session.rainbow_agent
+    local_frame_stack = session.frame_stack
+    local_game = session.current_game
+    local_session_id = session.db_session_id
+
+    if not local_streamer or not local_agent or not local_frame_stack:
+        return
+
+    episode = local_agent.episode_count
+    total_steps = local_agent.step_count
+    session.env_steps = total_steps
+    best_episode_reward = float('-inf')
+    session_episode_count = 0
+    session_step_count = 0
+    
+    logger.info(f"[{session.socket_sid}] Training loop starting - Episode: {episode}, Total steps: {total_steps}")
+
+    episode_start_time = time.time()
+    frame_counter = 0
+    step_sample_rate = 100
+    last_autosave_time = time.time()
+
+    try:
+        while session.is_training and local_streamer and local_agent and not session.training_stop_event.is_set():
+            episode += 1
+            local_agent.episode_count = episode
+
+            # Reset environment
+            obs, _ = local_streamer.env.reset()
+            state = local_frame_stack.reset(obs)
+            fire_action = get_fire_action(local_game)
+            if fire_action is not None:
+                try:
+                    obs, _, terminated, truncated, _ = local_streamer.env.step(fire_action)
+                    if terminated or truncated:
+                        obs, _ = local_streamer.env.reset()
+                    state = local_frame_stack.reset(obs)
+                except Exception as exc:
+                    logger.debug(f"Auto-fire failed for {local_game}: {exc}")
+
+            episode_reward = 0
+            step = 0
+            done = False
+            episode_start_time = time.time()
+            losses = []
+            q_values = []
+
+            while session.is_training and local_streamer and not done and not session.training_stop_event.is_set():
+                step += 1
+                total_steps += 1
+                session.env_steps = total_steps
+                session_step_count += 1
+                frame_counter += 1
+
+                # Select action
+                action = local_agent.select_action(state, training=True)
+
+                # Step environment
+                next_obs, reward, terminated, truncated, info = local_streamer.env.step(action)
+                done = terminated or truncated
+                episode_reward += reward
+
+                # Process next state
+                next_state = local_frame_stack.push(next_obs)
+
+                # Store transition
+                local_agent.push_transition(state, action, reward, next_state, done)
+
+                # Learn
+                loss = local_agent.learn()
+                if loss is not None:
+                    losses.append(loss)
+
+                # Track Q-values
+                q_values.append(local_agent.last_q_value)
+
+                # Log step metrics (sampled)
+                if step % step_sample_rate == 0 and local_session_id:
+                    db.log_step_metrics(
+                        local_session_id,
+                        episode,
+                        total_steps,
+                        loss=loss,
+                        action=action,
+                        reward=reward
+                    )
+
+                # Emit frame (respecting frame skip)
+                if (
+                    local_streamer
+                    and session.is_training
+                    and not session.training_stop_event.is_set()
+                    and frame_counter % session.viz_frame_skip == 0
+                ):
+                    local_streamer.emit_frame(
+                        episode=episode,
+                        step=step,
+                        reward=episode_reward,
+                        epsilon=local_agent.current_epsilon,
+                        loss=loss,
+                        q_value=local_agent.last_q_value,
+                        total_steps=total_steps
+                    )
+
+                # Speed control
+                if session.training_speed == "1x":
+                    time.sleep(0.033)
+                elif session.training_speed == "2x":
+                    time.sleep(0.016)
+                elif session.training_speed == "4x":
+                    if frame_counter % 5 == 0:
+                        time.sleep(0.001)
+
+                # Time-based autosave
+                current_time = time.time()
+                _record_training_time_session(session, now=current_time)
+                if current_time - last_autosave_time >= AUTOSAVE_INTERVAL_SECONDS:
+                    if local_agent and local_game:
+                        try:
+                            path = model_manager.save_checkpoint(
+                                local_agent,
+                                local_game,
+                                episode,
+                                episode_reward,
+                                metadata=_build_checkpoint_metadata_session(session)
+                            )
+                            last_autosave_time = current_time
+                            logger.info(f"[{session.socket_sid}] Time-based autosave at episode {episode}")
+                            if path:
+                                socketio.emit('model_saved', {'path': path, 'episode': episode}, room=session.room)
+                            socketio.emit('log', {
+                                'message': f'Autosaved at episode {episode}',
+                                'type': 'info'
+                            }, room=session.room)
+                        except Exception as e:
+                            logger.error(f"Autosave failed: {e}")
+
+                state = next_state
+
+            # Update epsilon at episode end
+            if local_agent:
+                local_agent.update_epsilon()
+
+            # Episode ended
+            episode_duration = int((time.time() - episode_start_time) * 1000)
+            session_episode_count += 1
+            avg_loss = sum(losses) / len(losses) if losses else 0
+            avg_q = sum(q_values) / len(q_values) if q_values else 0
+            max_q = max(q_values) if q_values else 0
+
+            # Log to database
+            if local_session_id:
+                db.log_episode(
+                    local_session_id,
+                    episode,
+                    episode_reward,
+                    step,
+                    loss=avg_loss,
+                    q_value_mean=avg_q,
+                    q_value_max=max_q,
+                    duration_ms=episode_duration
+                )
+
+            # Check for best and auto-save
+            if episode_reward > best_episode_reward:
+                best_episode_reward = episode_reward
+                if model_manager.should_auto_save(episode):
+                    model_manager.save_checkpoint(
+                        local_agent,
+                        local_game,
+                        episode,
+                        episode_reward,
+                        is_best=True,
+                        metadata=_build_checkpoint_metadata_session(session)
+                    )
+            elif model_manager.should_auto_save(episode):
+                model_manager.save_checkpoint(
+                    local_agent,
+                    local_game,
+                    episode,
+                    episode_reward,
+                    metadata=_build_checkpoint_metadata_session(session)
+                )
+
+            if session.is_training and not session.training_stop_event.is_set():
+                epsilon = local_agent.current_epsilon if local_agent else 0
+                logger.info(
+                    f"[{session.socket_sid}] Episode {episode}: reward={episode_reward:.1f}, steps={step}, "
+                    f"loss={avg_loss:.4f}, ε={epsilon:.3f}"
+                )
+                action_dist = db.get_action_distribution(local_session_id) if local_session_id else {}
+                socketio.emit('episode_end', {
+                    'episode': episode,
+                    'reward': episode_reward,
+                    'steps': step,
+                    'loss': round(avg_loss, 4),
+                    'qValueMean': round(avg_q, 2),
+                    'qValueMax': round(max_q, 2),
+                    'duration': episode_duration,
+                    'bestReward': best_episode_reward,
+                    'epsilon': round(epsilon, 4),
+                    'actionDistribution': action_dist
+                }, room=session.room)
+
+    except Exception as e:
+        logger.error(f"[{session.socket_sid}] Training loop error: {e}")
+        import traceback
+        traceback.print_exc()
+        socketio.emit('error', {'message': str(e)}, room=session.room)
+
+    finally:
+        session.is_training = False
+        session.training_stop_event.clear()
+        _finalize_training_activity_session(
+            session,
+            episodes=session_episode_count,
+            steps=session_step_count
+        )
+
+        if local_session_id:
+            db.end_session(local_session_id)
+
+        if local_streamer:
+            local_streamer.stop()
+
+        # Clean up session resources
+        session.streamer = None
+        session.rainbow_agent = None
+        session.frame_stack = None
+        session.current_game = None
+        session.db_session_id = None
+
+        _trim_memory()
+
+        # Process queue if there are waiting sessions
+        if training_queue and get_active_session_count() < MAX_CONCURRENT_TRAINING:
+            next_request = training_queue.pop(0)
+            next_sid = next_request.get('sid')
+            if next_sid:
+                socketio.emit('queue_ready', {'data': next_request['data']}, room=f"session_{next_sid}")
+
+        logger.info(f"[{session.socket_sid}] Training loop ended")
+
+
+def run_pretrained_loop_session(session: TrainingSession):
+    """Run an inference-only loop for a specific session (multi-user support)."""
+    
+    local_streamer = session.streamer
+    local_policy = session.pretrained_policy
+    local_frame_stack = session.frame_stack
+    local_game = session.current_game
+    local_session_id = session.db_session_id
+
+    if not local_streamer or not local_policy or not local_frame_stack:
+        return
+
+    episode = 0
+    total_steps = 0
+    if session.pretrained_model:
+        step_val = session.pretrained_model.get('step')
+        if step_val is not None:
+            try:
+                total_steps = int(step_val)
+                logger.info(f"[{session.socket_sid}] Starting from pretrained step count: {total_steps}")
+            except (ValueError, TypeError):
+                logger.warning(f"Could not parse step count from pretrained model: {step_val}")
+    session.env_steps = total_steps
+    best_episode_reward = float('-inf')
+    session_episode_count = 0
+    session_step_count = 0
+    frame_counter = 0
+    step_sample_rate = 100
+
+    logger.info(f"[{session.socket_sid}] Pretrained loop started")
+
+    try:
+        while session.is_training and local_streamer and local_policy and not session.training_stop_event.is_set():
+            # Check if policy was hot-swapped
+            if session.pretrained_policy is not local_policy and session.pretrained_policy is not None:
+                local_policy = session.pretrained_policy
+            episode += 1
+
+            obs, _ = local_streamer.env.reset()
+            state = local_frame_stack.reset(obs)
+            fire_action = get_fire_action(local_game)
+            if fire_action is not None:
+                try:
+                    obs, _, terminated, truncated, _ = local_streamer.env.step(fire_action)
+                    if terminated or truncated:
+                        obs, _ = local_streamer.env.reset()
+                    state = local_frame_stack.reset(obs)
+                except Exception as exc:
+                    logger.debug(f'Auto-fire failed for {local_game}: {exc}')
+
+            episode_reward = 0
+            step = 0
+            done = False
+            q_values = []
+            episode_start_time = time.time()
+
+            while session.is_training and local_streamer and not done and not session.training_stop_event.is_set():
+                step += 1
+                total_steps += 1
+                session.env_steps = total_steps
+                session_step_count += 1
+                frame_counter += 1
+
+                if session.pretrained_policy is not local_policy and session.pretrained_policy is not None:
+                    local_policy = session.pretrained_policy
+                action = local_policy.select_action(state)
+                next_obs, reward, terminated, truncated, _ = local_streamer.env.step(action)
+                done = terminated or truncated
+                episode_reward += reward
+                state = local_frame_stack.push(next_obs)
+
+                if hasattr(local_policy, 'last_q_value'):
+                    q_values.append(local_policy.last_q_value)
+
+                if step % step_sample_rate == 0 and local_session_id:
+                    db.log_step_metrics(
+                        local_session_id,
+                        episode,
+                        total_steps,
+                        loss=None,
+                        action=action,
+                        reward=reward,
+                    )
+
+                if (
+                    local_streamer
+                    and session.is_training
+                    and not session.training_stop_event.is_set()
+                    and frame_counter % session.viz_frame_skip == 0
+                ):
+                    local_streamer.emit_frame(
+                        episode=episode,
+                        step=step,
+                        reward=episode_reward,
+                        epsilon=0.0,
+                        loss=0.0,
+                        q_value=getattr(local_policy, 'last_q_value', None),
+                        total_steps=total_steps
+                    )
+
+                if session.training_speed == '1x':
+                    time.sleep(0.033)
+                elif session.training_speed == '2x':
+                    time.sleep(0.016)
+                elif session.training_speed == '4x':
+                    if frame_counter % 5 == 0:
+                        time.sleep(0.001)
+
+                _record_training_time_session(session)
+
+            episode_duration = int((time.time() - episode_start_time) * 1000)
+            session_episode_count += 1
+            avg_q = sum(q_values) / len(q_values) if q_values else 0
+            max_q = max(q_values) if q_values else 0
+
+            if local_session_id:
+                db.log_episode(
+                    local_session_id,
+                    episode,
+                    episode_reward,
+                    step,
+                    loss=None,
+                    q_value_mean=avg_q,
+                    q_value_max=max_q,
+                    epsilon=0.0,
+                    duration_ms=episode_duration,
+                )
+
+            if episode_reward > best_episode_reward:
+                best_episode_reward = episode_reward
+
+            if session.is_training and not session.training_stop_event.is_set():
+                action_dist = db.get_action_distribution(local_session_id) if local_session_id else {}
+                socketio.emit('episode_end', {
+                    'episode': episode,
+                    'reward': episode_reward,
+                    'steps': step,
+                    'loss': 0,
+                    'qValueMean': round(avg_q, 2),
+                    'qValueMax': round(max_q, 2),
+                    'duration': episode_duration,
+                    'bestReward': best_episode_reward,
+                    'epsilon': 0,
+                    'actionDistribution': action_dist,
+                }, room=session.room)
+
+    except Exception as e:
+        logger.error(f"[{session.socket_sid}] Pretrained loop error: {e}")
+        import traceback
+        traceback.print_exc()
+        socketio.emit('error', {'message': str(e)}, room=session.room)
+
+    finally:
+        session.is_training = False
+        session.training_stop_event.clear()
+        _finalize_training_activity_session(
+            session,
+            episodes=session_episode_count,
+            steps=session_step_count,
+        )
+
+        if local_session_id:
+            db.end_session(local_session_id)
+
+        if local_streamer:
+            local_streamer.stop()
+
+        # Clean up session resources
+        session.streamer = None
+        session.pretrained_policy = None
+        session.frame_stack = None
+        session.current_game = None
+        session.db_session_id = None
+        session.pretrained_model = None
+        session.run_mode = 'train'
+
+        _trim_memory()
+
+        # Process queue
+        if training_queue and get_active_session_count() < MAX_CONCURRENT_TRAINING:
+            next_request = training_queue.pop(0)
+            next_sid = next_request.get('sid')
+            if next_sid:
+                socketio.emit('queue_ready', {'data': next_request['data']}, room=f"session_{next_sid}")
+
+        logger.info(f"[{session.socket_sid}] Pretrained loop ended")
+
 
 # ============== Main ==============
 
