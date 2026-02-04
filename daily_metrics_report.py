@@ -185,22 +185,31 @@ class MetricsCollector:
         """)
         metrics['page_views_trend_7d'] = [dict(row) for row in cursor.fetchall()]
         
-        # Conversion funnel
+        # Conversion funnel (visitor journey)
         cursor.execute("SELECT COUNT(DISTINCT visitor_id) as count FROM analytics_events WHERE event_type = 'page_view'")
         funnel_visitors = cursor.fetchone()['count']
         
-        cursor.execute("SELECT COUNT(DISTINCT visitor_id) as count FROM analytics_events WHERE event_type = 'email_provided'")
-        funnel_email = cursor.fetchone()['count']
+        cursor.execute("SELECT COUNT(DISTINCT visitor_id) as count FROM analytics_events WHERE event_type = 'game_select'")
+        funnel_game_select = cursor.fetchone()['count']
         
         cursor.execute("SELECT COUNT(DISTINCT visitor_id) as count FROM analytics_events WHERE event_type IN ('training_started', 'training_start')")
         funnel_trained = cursor.fetchone()['count']
         
+        cursor.execute("SELECT COUNT(DISTINCT visitor_id) as count FROM analytics_events WHERE event_type = 'podcast_subscribe_click'")
+        funnel_podcast = cursor.fetchone()['count']
+        
+        cursor.execute("SELECT COUNT(DISTINCT visitor_id) as count FROM analytics_events WHERE event_type = 'feedback_submit'")
+        funnel_feedback = cursor.fetchone()['count']
+        
         metrics['conversion_funnel'] = {
             'visitors': funnel_visitors,
-            'email_provided': funnel_email,
+            'game_select': funnel_game_select,
             'trained': funnel_trained,
-            'email_rate': round((funnel_email / funnel_visitors * 100) if funnel_visitors > 0 else 0, 1),
-            'training_rate': round((funnel_trained / funnel_visitors * 100) if funnel_visitors > 0 else 0, 1)
+            'podcast_clicks': funnel_podcast,
+            'feedback': funnel_feedback,
+            'game_select_rate': round((funnel_game_select / funnel_visitors * 100) if funnel_visitors > 0 else 0, 1),
+            'training_rate': round((funnel_trained / funnel_visitors * 100) if funnel_visitors > 0 else 0, 1),
+            'podcast_rate': round((funnel_podcast / funnel_visitors * 100) if funnel_visitors > 0 else 0, 1),
         }
         
         conn.close()
@@ -361,11 +370,13 @@ def generate_report() -> str:
         report += "    (No sessions today)\n"
     
     report += f"""
-📊 CONVERSION FUNNEL (All Time)
+📊 ENGAGEMENT FUNNEL (All Time)
 --------------------------------------------------------------------------------
   Page Visitors:                 {analytics_metrics['conversion_funnel']['visitors']:,}
-  → Email Provided:              {analytics_metrics['conversion_funnel']['email_provided']:,} ({analytics_metrics['conversion_funnel']['email_rate']:.1f}%)
+  → Selected a Game:             {analytics_metrics['conversion_funnel']['game_select']:,} ({analytics_metrics['conversion_funnel']['game_select_rate']:.1f}%)
   → Started Training:            {analytics_metrics['conversion_funnel']['trained']:,} ({analytics_metrics['conversion_funnel']['training_rate']:.1f}%)
+  → Clicked Podcast Subscribe:   {analytics_metrics['conversion_funnel']['podcast_clicks']:,} ({analytics_metrics['conversion_funnel']['podcast_rate']:.1f}%)
+  → Submitted Feedback:          {analytics_metrics['conversion_funnel']['feedback']:,}
 
 📱 EVENT BREAKDOWN (Today)
 --------------------------------------------------------------------------------

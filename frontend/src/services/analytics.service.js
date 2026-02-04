@@ -106,6 +106,17 @@ class AnalyticsService {
     this.trackEvent('speed_change', { speed });
   }
 
+  trackPodcastSubscribe() {
+    this.trackEvent('podcast_subscribe_click', { 
+      podcast: 'Major Programmes Navigating',
+      url: window.location.href
+    });
+  }
+
+  trackGameSelect(gameId) {
+    this.trackEvent('game_select', { game_id: gameId });
+  }
+
   async flush() {
     if (this.eventQueue.length === 0) return;
 

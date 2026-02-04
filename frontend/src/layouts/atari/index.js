@@ -402,6 +402,9 @@ function AtariDashboard() {
     setLoadCheckpoint('');
     setResumeFromSaved(false);
     setAvailableCheckpoints([]);
+    
+    // Track game selection
+    analyticsService.trackGameSelect(newGame);
     setPretrainedLevels({ low: null, medium: null, high: null });
     setSessionId(null);
     setStats({
@@ -877,6 +880,7 @@ function AtariDashboard() {
                   variant="contained"
                   color="info"
                   size="small"
+                  onClick={() => analyticsService.trackPodcastSubscribe()}
                   sx={{
                     textTransform: 'none',
                     borderRadius: '12px',
