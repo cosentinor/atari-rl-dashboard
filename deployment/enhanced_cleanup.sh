@@ -99,6 +99,8 @@ ARCHIVED_CHECKPOINTS=0
 CLEANED_PYCACHE=0
 CLEANED_LOGS=0
 ARCHIVED_LOGS=0
+CLEANED_PIP_CACHE=0
+CLEANED_JOURNAL=0
 INITIAL_DISK=$(df / | tail -1 | awk '{print $5}')
 
 # Ensure backup directory exists
@@ -162,6 +164,46 @@ if [ -n "$OLD_UNCOMPRESSED" ]; then
     log_msg "  ✓ Archived and removed $archived_count old uncompressed log files"
 fi
 
+# Clean pip cache (safe to remove, will re-download if needed)
+log_msg "Cleaning pip cache..."
+PIP_CACHE_SIZE_BEFORE=$(du -sb /home/riccardo/.cache/pip 2>/dev/null | awk '{print $1}' || echo 0)
+if [ -d "/home/riccardo/.cache/pip" ] && [ "$PIP_CACHE_SIZE_BEFORE" -gt 0 ]; then
+    # Use pip cache purge if available, otherwise remove directory
+    if command -v pip3 &> /dev/null; then
+        pip3 cache purge 2>&1 | tee -a "$LOG_FILE" || true
+    fi
+    # Fallback: remove old cache files (older than 30 days)
+    find /home/riccardo/.cache/pip -type f -mtime +30 -delete 2>/dev/null
+    PIP_CACHE_SIZE_AFTER=$(du -sb /home/riccardo/.cache/pip 2>/dev/null | awk '{print $1}' || echo 0)
+    CLEANED_PIP_CACHE=$((PIP_CACHE_SIZE_BEFORE - PIP_CACHE_SIZE_AFTER))
+    if [ "$CLEANED_PIP_CACHE" -gt 0 ]; then
+        CLEANED_PIP_CACHE_MB=$((CLEANED_PIP_CACHE / 1024 / 1024))
+        log_msg "  ✓ Cleaned pip cache: ${CLEANED_PIP_CACHE_MB}MB freed"
+    else
+        log_msg "  ℹ️ Pip cache already clean"
+    fi
+else
+    log_msg "  ℹ️ Pip cache directory not found or empty"
+fi
+
+# Clean systemd journal logs (keep last 7 days, limit to 500MB)
+log_msg "Cleaning systemd journal logs..."
+JOURNAL_SIZE_BEFORE=$(du -sb /var/log/journal 2>/dev/null | awk '{print $1}' || echo 0)
+if [ "$JOURNAL_SIZE_BEFORE" -gt 0 ]; then
+    # Use journalctl to vacuum logs (keep last 7 days, limit to 500MB)
+    sudo journalctl --vacuum-time=7d --vacuum-size=500M 2>&1 | tee -a "$LOG_FILE" || true
+    JOURNAL_SIZE_AFTER=$(du -sb /var/log/journal 2>/dev/null | awk '{print $1}' || echo 0)
+    CLEANED_JOURNAL=$((JOURNAL_SIZE_BEFORE - JOURNAL_SIZE_AFTER))
+    if [ "$CLEANED_JOURNAL" -gt 0 ]; then
+        CLEANED_JOURNAL_MB=$((CLEANED_JOURNAL / 1024 / 1024))
+        log_msg "  ✓ Cleaned journal logs: ${CLEANED_JOURNAL_MB}MB freed (kept last 7 days, max 500MB)"
+    else
+        log_msg "  ℹ️ Journal logs already within limits"
+    fi
+else
+    log_msg "  ℹ️ Journal directory not found or empty"
+fi
+
 # Push archives to GitHub backup repo
 if [ $ARCHIVED_CHECKPOINTS -gt 0 ] || [ $ARCHIVED_LOGS -gt 0 ]; then
     log_msg "Pushing archives to GitHub backup repository..."
@@ -188,11 +230,14 @@ Cleaned Items:
   • Python cache directories: $CLEANED_PYCACHE
   • Old log files removed: $CLEANED_LOGS files
   • Old log files archived: $ARCHIVED_LOGS files
+  • Pip cache cleaned: $([ $CLEANED_PIP_CACHE -gt 0 ] && echo "$((CLEANED_PIP_CACHE / 1024 / 1024))MB" || echo "0MB")
+  • Journal logs cleaned: $([ $CLEANED_JOURNAL -gt 0 ] && echo "$((CLEANED_JOURNAL / 1024 / 1024))MB" || echo "0MB")
 
 Disk Status:
   • Before: $INITIAL_DISK
   • After: $FINAL_DISK
   • Available: $DISK_FREE
+  • Total space freed: $([ $((CLEANED_PIP_CACHE + CLEANED_JOURNAL)) -gt 0 ] && echo "$(( (CLEANED_PIP_CACHE + CLEANED_JOURNAL) / 1024 / 1024 ))MB" || echo "0MB")
 
 Archives Location:
   • Checkpoints: $ARCHIVE_DIR
