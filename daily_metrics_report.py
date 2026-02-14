@@ -18,7 +18,7 @@ from typing import Dict, List, Any, Optional
 
 # Configuration
 DB_PATH = Path(__file__).parent / "data" / "rl_training.db"
-ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "alerts@riccardocosentino.com")
+ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "riccardo@riccardocosentino.com")
 SMTP_HOST = os.environ.get("SMTP_HOST", "localhost")
 SMTP_PORT = int(os.environ.get("SMTP_PORT", "25"))
 HOSTNAME = subprocess.getoutput("hostname")
@@ -479,7 +479,10 @@ def send_email(subject: str, body: str, to_email: str):
 
 def main():
     """Main entry point."""
-    print(f"Generating daily metrics report at {datetime.now()}")
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--no-email', action='store_true', help='Generate report only, do not send email')
+    args = parser.parse_args()
     
     if not DB_PATH.exists():
         print(f"Error: Database not found at {DB_PATH}")
@@ -488,11 +491,14 @@ def main():
     try:
         report = generate_report()
         
-        # Print to stdout
+        # Print to stdout (when --no-email, only the report for piping into summary)
+        if args.no_email:
+            print(report, end='')
+            return
         print(report)
         
         # Send email
-        subject = f"[{HOSTNAME}] Atari RL Dashboard - Daily Metrics Report - {datetime.now().strftime('%Y-%m-%d')}"
+        subject = f"[Atari App] Daily Metrics Report - {datetime.now().strftime('%Y-%m-%d')}"
         
         if send_email(subject, report, ADMIN_EMAIL):
             print(f"\nReport sent successfully to {ADMIN_EMAIL}")

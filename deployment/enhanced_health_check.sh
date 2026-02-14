@@ -4,9 +4,7 @@
 
 SERVICE="atari"
 URL="http://localhost:5001"
-# Send only to alerts@ (works reliably)
-# Set up forwarding in Office365 to riccardo@ and/or me.com
-ADMIN_EMAIL="alerts@riccardocosentino.com"
+ADMIN_EMAIL="riccardo@riccardocosentino.com"
 HOSTNAME=$(hostname)
 LOG_FILE="/var/log/atari/health.log"
 ALERT_COOLDOWN_DIR="/var/log/atari/alert_cooldowns"
@@ -50,7 +48,7 @@ send_alert() {
     local message="$3"
     
     if should_send_alert "$alert_type"; then
-        echo "$message" | mail -s "[$HOSTNAME] $subject" "$ADMIN_EMAIL"
+        echo "$message" | mail -s "[Atari App] $subject" "$ADMIN_EMAIL"
         record_alert_sent "$alert_type"
         log_msg "📧 Alert sent: $alert_type"
     else
@@ -70,15 +68,7 @@ if ! systemctl is-active --quiet $SERVICE; then
     sleep 3
     
     if systemctl is-active --quiet $SERVICE; then
-        log_msg "✅ Service restarted successfully"
-        send_alert "service_restart" "⚠️ Atari Service Auto-Restarted" \
-"The Atari RL Dashboard service was down and has been automatically restarted.
-
-Time: $(date)
-Server: $HOSTNAME
-Status: Service is now running
-
-This is an automated recovery. No action needed unless you receive multiple alerts."
+        log_msg "✅ Service restarted successfully (no email - see daily summary)"
     else
         log_msg "❌ CRITICAL: Service restart failed!"
         send_alert "service_restart_failed" "🚨 CRITICAL: Atari Service Restart Failed" \
@@ -105,16 +95,7 @@ if [ "$HTTP_CODE" != "200" ]; then
     # Verify restart
     NEW_HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$URL")
     if [ "$NEW_HTTP_CODE" = "200" ]; then
-        log_msg "✅ Service restarted, HTTP now responding"
-        send_alert "http_recovered" "⚠️ Atari HTTP Error - Auto-Recovered" \
-"The Atari RL Dashboard HTTP endpoint was not responding and has been automatically restarted.
-
-Time: $(date)
-Server: $HOSTNAME
-Original HTTP Code: $HTTP_CODE
-Current HTTP Code: $NEW_HTTP_CODE
-
-Service has been recovered. No action needed unless you receive multiple alerts."
+        log_msg "✅ Service restarted, HTTP now responding (no email - see daily summary)"
     else
         log_msg "❌ CRITICAL: HTTP still failing after restart (code: $NEW_HTTP_CODE)"
         send_alert "http_failed" "🚨 CRITICAL: Atari HTTP Endpoint Failure" \

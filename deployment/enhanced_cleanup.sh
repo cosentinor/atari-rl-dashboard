@@ -6,9 +6,7 @@ APP_DIR="/home/riccardo/atari-rl-dashboard"
 BACKUP_DIR="/home/riccardo/atari-models-backup"
 ARCHIVE_DIR="$BACKUP_DIR/archived_checkpoints"
 ARCHIVE_LOGS_DIR="$BACKUP_DIR/archived_logs"
-# Send only to alerts@ (works reliably)
-# Set up forwarding in Office365 to riccardo@ and/or me.com
-ADMIN_EMAIL="alerts@riccardocosentino.com"
+ADMIN_EMAIL="riccardo@riccardocosentino.com"
 HOSTNAME=$(hostname)
 MAX_CHECKPOINTS=5  # Keep last N checkpoints per game (reduced from 10)
 LOG_FILE="/var/log/atari/cleanup.log"
@@ -22,7 +20,7 @@ log_msg() {
 send_notification() {
     local subject="$1"
     local message="$2"
-    echo "$message" | mail -s "[$HOSTNAME] $subject" "$ADMIN_EMAIL"
+    echo "$message" | mail -s "[Atari App] $subject" "$ADMIN_EMAIL"
 }
 
 # Function to archive checkpoints to GitHub backup repo
@@ -249,6 +247,5 @@ Memory Usage: $(free -h | grep Mem | awk '{print $3 "/" $2}')
 Next cleanup: In 6 hours
 "
 
-send_notification "✅ Cleanup Complete (Archived)" "$SUMMARY"
-
-log_msg "📧 Notification email sent to $ADMIN_EMAIL"
+# Routine cleanup - no email (included in daily summary report)
+log_msg "📧 Cleanup complete (summary in daily report)"
