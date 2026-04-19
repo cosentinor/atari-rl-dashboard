@@ -40,13 +40,25 @@ env/
 data/
 saved_models/
 checkpoints/
+pretrained_models/
+backup_checkpoints_*/
+atari-v2-archive/
 *.pt
 *.pth
 *.h5
 *.ckpt
+*.gz
+
+# Backup source files
+*_backup_*.py
+*.bak
+
+# Reference PDFs (keep out of git)
+*.pdf
 
 # Logs
 *.log
+logs/
 
 # OS
 .DS_Store
