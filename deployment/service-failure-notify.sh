@@ -3,9 +3,7 @@
 # Called by systemd when atari.service fails
 
 SERVICE="$1"
-# Send only to alerts@ (works reliably)
-# Set up forwarding in Office365 to riccardo@ and/or me.com
-ADMIN_EMAIL="alerts@riccardocosentino.com"
+ADMIN_EMAIL="riccardo@riccardocosentino.com"
 HOSTNAME=$(hostname)
 ALERT_COOLDOWN_DIR="/var/log/atari/alert_cooldowns"
 ALERT_COOLDOWN_MINUTES=30  # Only send one email per 30 minutes for service failures
@@ -57,6 +55,6 @@ The health check script will attempt automatic recovery every 5 minutes.
 Note: You will only receive this alert once per 30 minutes to avoid spam.
 "
 
-    echo "$MESSAGE" | mail -s "CRITICAL: Atari Service Failed on $HOSTNAME" "$ADMIN_EMAIL"
+    echo "$MESSAGE" | mail -s "[Atari App] CRITICAL: Service Failed" "$ADMIN_EMAIL"
     echo $(date +%s) > "$COOLDOWN_FILE"
 fi
