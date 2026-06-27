@@ -59,3 +59,9 @@ Thumbs.db
 # Vite cache
 .vite/
 
+
+# Stray runtime workspace dumps and local databases
+workspace/
+*.db
+*.sqlite
+*.sqlite3
